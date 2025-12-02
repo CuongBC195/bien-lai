@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import ReceiptEditorKV from './ReceiptEditorKV';
+import { ToastContainer, useToast } from './Toast';
+import ShareMenu from './ShareMenu';
 
 interface ReceiptInfo {
   hoTenNguoiNhan: string;
@@ -56,8 +58,22 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingReceipt, setEditingReceipt] = useState<ReceiptData | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Toast notification
+  const { toasts, showToast, removeToast } = useToast();
+  
+  // Share menu state
+  const [shareMenuOpen, setShareMenuOpen] = useState<string | null>(null);
+  const [shareMenuPosition, setShareMenuPosition] = useState({ x: 0, y: 0 });
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [selectedReceiptForEmail, setSelectedReceiptForEmail] = useState<ReceiptData | null>(null);
+  const [emailAddress, setEmailAddress] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  
+  // Delete confirmation state
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadReceipts();
@@ -94,28 +110,89 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Bạn có chắc muốn xóa biên nhận này?')) {
-      try {
-        const res = await fetch(`/api/receipts/delete?id=${id}`, { method: 'DELETE' });
-        const data = await res.json();
-        if (data.success) {
-          await loadReceipts();
-        }
-      } catch (error) {
-        console.error('Error deleting receipt:', error);
+    setDeleteConfirmId(id);
+  };
+  
+  const confirmDelete = async () => {
+    if (!deleteConfirmId) return;
+    
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/receipts/delete?id=${deleteConfirmId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        await loadReceipts();
+        showToast('Đã xóa biên nhận thành công', 'success');
+      } else {
+        showToast('Không thể xóa biên nhận', 'error');
       }
+    } catch (error) {
+      console.error('Error deleting receipt:', error);
+      showToast('Có lỗi xảy ra khi xóa biên nhận', 'error');
+    } finally {
+      setDeleting(false);
+      setDeleteConfirmId(null);
     }
   };
 
-  const handleShare = async (receipt: ReceiptData) => {
+  const handleShareClick = (receipt: ReceiptData, event: React.MouseEvent) => {
+    const rect = (event.target as HTMLElement).getBoundingClientRect();
+    setShareMenuPosition({ x: rect.right, y: rect.bottom + 8 });
+    setShareMenuOpen(receipt.id);
+  };
+
+  const handleCopyLink = async (receipt: ReceiptData) => {
     const url = `${window.location.origin}/?id=${receipt.id}`;
-    
     try {
       await navigator.clipboard.writeText(url);
-      setCopiedId(receipt.id);
-      setTimeout(() => setCopiedId(null), 2000);
+      showToast('Đã copy link vào clipboard', 'success');
     } catch (error) {
       console.error('Error copying to clipboard:', error);
+      showToast('Không thể copy link', 'error');
+    }
+  };
+
+  const handleSendEmailClick = (receipt: ReceiptData) => {
+    setSelectedReceiptForEmail(receipt);
+    setEmailAddress(receipt.info?.hoTenNguoiGui ? '' : '');
+    setEmailModalOpen(true);
+  };
+
+  const handleSendEmail = async () => {
+    if (!selectedReceiptForEmail || !emailAddress) {
+      showToast('Vui lòng nhập email', 'error');
+      return;
+    }
+
+    setSendingEmail(true);
+    try {
+      const url = `${window.location.origin}/?id=${selectedReceiptForEmail.id}`;
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: emailAddress,
+          subject: `Biên nhận tiền - ${selectedReceiptForEmail.info?.hoTenNguoiNhan || 'N/A'}`,
+          receiptId: selectedReceiptForEmail.id,
+          receiptInfo: selectedReceiptForEmail.info,
+          signUrl: url,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        showToast('Đã gửi email thành công', 'success');
+        setEmailModalOpen(false);
+        setEmailAddress('');
+        setSelectedReceiptForEmail(null);
+      } else {
+        showToast(data.error || 'Gửi email thất bại', 'error');
+      }
+    } catch (error) {
+      console.error('Error sending email:', error);
+      showToast('Có lỗi xảy ra khi gửi email', 'error');
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -326,22 +403,23 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         </div>
                       </td>
                       <td className="px-5 py-4">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1 relative">
                           <button
-                            onClick={() => handleShare(receipt)}
-                            className={`p-2.5 rounded-xl transition-all ${
-                              copiedId === receipt.id 
-                                ? 'bg-green-100 text-green-700' 
-                                : 'hover:bg-gray-100 text-gray-500 hover:text-gray-900'
-                            }`}
-                            title={copiedId === receipt.id ? 'Đã copy!' : 'Lấy link chia sẻ'}
+                            onClick={(e) => handleShareClick(receipt, e)}
+                            className="p-2.5 rounded-xl transition-all hover:bg-gray-100 text-gray-500 hover:text-gray-900"
+                            title="Chia sẻ"
                           >
-                            {copiedId === receipt.id ? (
-                              <CheckCircle2 className="w-5 h-5" />
-                            ) : (
-                              <Share2 className="w-5 h-5" />
-                            )}
+                            <Share2 className="w-5 h-5" />
                           </button>
+                          {shareMenuOpen === receipt.id && (
+                            <ShareMenu
+                              isOpen={true}
+                              onClose={() => setShareMenuOpen(null)}
+                              onCopyLink={() => handleCopyLink(receipt)}
+                              onSendEmail={() => handleSendEmailClick(receipt)}
+                              position={shareMenuPosition}
+                            />
+                          )}
                           <button
                             onClick={() => handleEdit(receipt)}
                             className="p-2.5 hover:bg-gray-100 text-gray-500 hover:text-gray-900 rounded-xl transition-all"
@@ -365,6 +443,93 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             </div>
           </div>
         )}
+
+        {/* Delete Confirmation Modal */}
+        {deleteConfirmId && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-sm mx-4 shadow-2xl">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-3 bg-red-100 rounded-full">
+                  <Trash2 className="w-6 h-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Xóa biên nhận?</h3>
+                  <p className="text-sm text-gray-500">Link chia sẻ sẽ không còn hoạt động</p>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteConfirmId(null)}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {deleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Đang xóa...
+                    </>
+                  ) : (
+                    'Xóa'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Email Modal */}
+        {emailModalOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Gửi email mời ký</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Biên nhận: <span className="font-medium">{selectedReceiptForEmail?.id}</span>
+              </p>
+              <input
+                type="email"
+                placeholder="Nhập địa chỉ email..."
+                value={emailAddress}
+                onChange={(e) => setEmailAddress(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-black/20 mb-4"
+              />
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setEmailModalOpen(false);
+                    setEmailAddress('');
+                    setSelectedReceiptForEmail(null);
+                  }}
+                  className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={handleSendEmail}
+                  disabled={sendingEmail || !emailAddress}
+                  className="flex-1 px-4 py-2.5 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {sendingEmail ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Đang gửi...
+                    </>
+                  ) : (
+                    'Gửi email'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Toast Container */}
+        <ToastContainer toasts={toasts} onRemove={removeToast} />
       </main>
     </div>
   );

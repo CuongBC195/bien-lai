@@ -20,6 +20,7 @@ import {
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import SignatureModal from './SignatureModal';
+import { ToastContainer, useToast } from './Toast';
 import { 
   numberToVietnamese, 
   formatNumber, 
@@ -97,6 +98,9 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
   const [showEmailPanel, setShowEmailPanel] = useState(false);
   const [customerEmail, setCustomerEmail] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
+
+  // Toast notification
+  const { toasts, showToast, removeToast } = useToast();
 
   // Set date on mount
   useEffect(() => {
@@ -269,7 +273,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
   // Send invitation email
   const handleSendEmail = async () => {
     if (!customerEmail) {
-      alert('Vui lòng nhập email!');
+      showToast('Vui lòng nhập email!', 'error');
       return;
     }
 
@@ -305,7 +309,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
       const data = await res.json();
       if (data.success) {
-        alert('Đã gửi email mời ký thành công!');
+        showToast('Đã gửi email mời ký thành công!', 'success');
         setShowEmailPanel(false);
         setCustomerEmail('');
       } else {
@@ -313,7 +317,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
       }
     } catch (error) {
       console.error('Error sending email:', error);
-      alert('Có lỗi xảy ra khi gửi email!');
+      showToast('Có lỗi xảy ra khi gửi email!', 'error');
     } finally {
       setSendingEmail(false);
     }
@@ -734,6 +738,9 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         onClose={() => setIsSignatureModalOpen(false)}
         onApply={(sig) => setSignatureNguoiNhan(sig)}
       />
+
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

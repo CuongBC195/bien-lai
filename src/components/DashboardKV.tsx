@@ -9,9 +9,12 @@ import {
   FileText,
   Check,
   Clock,
-  Copy
+  Share2,
+  Mail
 } from 'lucide-react';
 import ReceiptEditorKV from './ReceiptEditorKV';
+import { Toast, ToastContainer, ToastItem } from './Toast';
+import ShareMenu from './ShareMenu';
 
 interface ReceiptInfo {
   hoTenNguoiNhan: string;
@@ -51,6 +54,31 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  
+  // Toast state
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  
+  // ShareMenu state
+  const [shareMenuReceipt, setShareMenuReceipt] = useState<Receipt | null>(null);
+  const [shareMenuPosition, setShareMenuPosition] = useState({ x: 0, y: 0 });
+  
+  // Email panel state
+  const [emailPanelReceipt, setEmailPanelReceipt] = useState<Receipt | null>(null);
+  const [emailTo, setEmailTo] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+  
+  // Delete confirmation state
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    const id = Date.now().toString();
+    setToasts(prev => [...prev, { id, message, type }]);
+  };
+  
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
 
   // Fetch receipts
   const fetchReceipts = async () => {
@@ -73,30 +101,91 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   }, []);
 
   // Delete receipt
-  const handleDelete = async (id: string) => {
-    if (!confirm('Bạn có chắc muốn xóa biên lai này? Link chia sẻ sẽ không còn hoạt động.')) {
-      return;
-    }
-
+  const handleDelete = async () => {
+    if (!deleteConfirmId) return;
+    
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/receipts/delete?id=${id}`, {
+      const res = await fetch(`/api/receipts/delete?id=${deleteConfirmId}`, {
         method: 'DELETE',
       });
       const data = await res.json();
       if (data.success) {
-        setReceipts(receipts.filter(r => r.id !== id));
+        setReceipts(receipts.filter(r => r.id !== deleteConfirmId));
+        showToast('Đã xóa biên lai!', 'success');
+      } else {
+        showToast('Không thể xóa biên lai!', 'error');
       }
     } catch (error) {
       console.error('Error deleting receipt:', error);
+      showToast('Lỗi khi xóa biên lai!', 'error');
+    } finally {
+      setDeleting(false);
+      setDeleteConfirmId(null);
     }
   };
 
+  // Open share menu
+  const handleShareClick = (receipt: Receipt, e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setShareMenuPosition({ x: rect.left, y: rect.bottom + 4 });
+    setShareMenuReceipt(receipt);
+  };
+  
   // Copy share link
-  const handleShare = async (id: string) => {
+  const handleCopyLink = async (id: string) => {
     const url = `${window.location.origin}/?id=${id}`;
     await navigator.clipboard.writeText(url);
     setCopiedId(id);
+    showToast('Đã sao chép link!', 'success');
+    setShareMenuReceipt(null);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+  
+  // Open email panel
+  const handleOpenEmailPanel = (receipt: Receipt) => {
+    setEmailPanelReceipt(receipt);
+    setEmailTo('');
+    setShareMenuReceipt(null);
+  };
+  
+  // Send invitation email
+  const handleSendInvitation = async () => {
+    if (!emailPanelReceipt || !emailTo.trim()) {
+      showToast('Vui lòng nhập email!', 'error');
+      return;
+    }
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailTo)) {
+      showToast('Email không hợp lệ!', 'error');
+      return;
+    }
+    
+    setEmailSending(true);
+    try {
+      const res = await fetch('/api/send-invitation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          receiptId: emailPanelReceipt.id,
+          email: emailTo,
+          senderName: emailPanelReceipt.info?.hoTenNguoiNhan || 'Admin'
+        })
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        showToast('Đã gửi email thành công!', 'success');
+        setEmailPanelReceipt(null);
+      } else {
+        showToast(data.error || 'Không thể gửi email!', 'error');
+      }
+    } catch {
+      showToast('Lỗi khi gửi email!', 'error');
+    } finally {
+      setEmailSending(false);
+    }
   };
 
   // Format currency
@@ -263,14 +352,14 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                       <td className="p-4">
                         <div className="flex justify-end gap-1">
                           <button
-                            onClick={() => handleShare(receipt.id)}
+                            onClick={(e) => handleShareClick(receipt, e)}
                             className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white relative"
-                            title="Copy link"
+                            title="Chia sẻ"
                           >
                             {copiedId === receipt.id ? (
                               <Check className="w-4 h-4 text-green-400" />
                             ) : (
-                              <Copy className="w-4 h-4" />
+                              <Share2 className="w-4 h-4" />
                             )}
                           </button>
                           <button
@@ -281,7 +370,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                             <Edit3 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDelete(receipt.id)}
+                            onClick={() => setDeleteConfirmId(receipt.id)}
                             className="p-2 hover:bg-red-500/20 rounded-lg transition-colors text-gray-400 hover:text-red-400"
                             title="Xóa"
                           >
@@ -297,6 +386,114 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           )}
         </div>
       </div>
+      
+      {/* Share Menu */}
+      {shareMenuReceipt && (
+        <ShareMenu
+          isOpen={!!shareMenuReceipt}
+          onClose={() => setShareMenuReceipt(null)}
+          onCopyLink={() => handleCopyLink(shareMenuReceipt.id)}
+          onSendEmail={() => handleOpenEmailPanel(shareMenuReceipt)}
+          position={shareMenuPosition}
+        />
+      )}
+      
+      {/* Email Panel Modal */}
+      {emailPanelReceipt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setEmailPanelReceipt(null)}
+          />
+          <div className="relative bg-gray-800 rounded-2xl p-6 w-full max-w-md mx-4 border border-white/10">
+            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Mail className="w-5 h-5" />
+              Gửi link qua email
+            </h3>
+            <p className="text-gray-400 text-sm mb-4">
+              Gửi lời mời ký biên lai đến người nhận
+            </p>
+            <input
+              type="email"
+              placeholder="Nhập email người nhận..."
+              value={emailTo}
+              onChange={(e) => setEmailTo(e.target.value)}
+              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => setEmailPanelReceipt(null)}
+                className="flex-1 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleSendInvitation}
+                disabled={emailSending}
+                className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {emailSending ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Đang gửi...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="w-4 h-4" />
+                    Gửi email
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setDeleteConfirmId(null)}
+          />
+          <div className="relative bg-gray-800 rounded-2xl p-6 w-full max-w-sm mx-4 border border-white/10">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-red-500/20 rounded-full">
+                <Trash2 className="w-6 h-6 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-white">Xóa biên lai?</h3>
+                <p className="text-gray-400 text-sm">Link chia sẻ sẽ không còn hoạt động</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deleting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Đang xóa...
+                  </>
+                ) : (
+                  'Xóa'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

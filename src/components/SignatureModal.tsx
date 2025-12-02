@@ -29,6 +29,7 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
   ({ isOpen, onClose, onApply }, ref) => {
     const signatureRef = useRef<SignatureCanvas>(null);
     const [activeTab, setActiveTab] = useState<TabType>('draw');
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [typedName, setTypedName] = useState('');
     const [selectedFont, setSelectedFont] = useState(handwritingFonts[0].name);
     const [penColor, setPenColor] = useState('#000000');
@@ -98,18 +99,19 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
     };
 
     const handleApply = async () => {
+      setErrorMessage(null);
       let signatureDataUrl = '';
       
       if (activeTab === 'draw' && signatureRef.current) {
         if (signatureRef.current.isEmpty()) {
-          alert('Vui lòng ký tên trước khi áp dụng!');
+          setErrorMessage('Vui lòng ký tên trước khi áp dụng!');
           return;
         }
         const original = signatureRef.current.toDataURL('image/png');
         signatureDataUrl = await compressSignatureAsync(original);
       } else if (activeTab === 'type') {
         if (!typedName.trim()) {
-          alert('Vui lòng nhập tên trước khi áp dụng!');
+          setErrorMessage('Vui lòng nhập tên trước khi áp dụng!');
           return;
         }
         signatureDataUrl = generateTypedSignature();
@@ -145,7 +147,7 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
           {/* Tabs */}
           <div className="flex border-b border-gray-200/50">
             <button
-              onClick={() => setActiveTab('draw')}
+              onClick={() => { setActiveTab('draw'); setErrorMessage(null); }}
               className={cn(
                 'flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors',
                 activeTab === 'draw'
@@ -157,7 +159,7 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
               Ký tay
             </button>
             <button
-              onClick={() => setActiveTab('type')}
+              onClick={() => { setActiveTab('type'); setErrorMessage(null); }}
               className={cn(
                 'flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors',
                 activeTab === 'type'
@@ -288,6 +290,13 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
               </div>
             )}
           </div>
+
+          {/* Error Message */}
+          {errorMessage && (
+            <div className="mx-6 mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+              <p className="text-sm text-red-600 font-medium">{errorMessage}</p>
+            </div>
+          )}
 
           {/* Footer */}
           <div className="flex justify-end gap-3 px-6 py-4 bg-gray-50/50 border-t border-gray-200/50">

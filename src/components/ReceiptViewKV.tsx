@@ -14,6 +14,7 @@ import {
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import SignatureModal from './SignatureModal';
+import { ToastContainer, useToast } from './Toast';
 import { 
   numberToVietnamese, 
   formatNumber, 
@@ -74,6 +75,9 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
   const [exportStatus, setExportStatus] = useState<ActionStatus>('idle');
   const [sendStatus, setSendStatus] = useState<ActionStatus>('idle');
   const [showSuccess, setShowSuccess] = useState(false);
+
+  // Toast notification
+  const { toasts, showToast, removeToast } = useToast();
 
   // Fetch receipt on mount
   useEffect(() => {
@@ -179,7 +183,7 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
   // Sign and send
   const handleSignAndSend = async () => {
     if (!signatureNguoiGui) {
-      alert('Vui lòng ký tên trước khi gửi!');
+      showToast('Vui lòng ký tên trước khi gửi!', 'error');
       return;
     }
     if (!receipt) return;
@@ -548,6 +552,9 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
         onClose={() => setIsSignatureModalOpen(false)}
         onApply={(sig) => setSignatureNguoiGui(sig)}
       />
+
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }
