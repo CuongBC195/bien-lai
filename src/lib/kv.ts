@@ -1,5 +1,8 @@
-import { kv } from '@vercel/kv';
+import Redis from 'ioredis';
 import { customAlphabet } from 'nanoid';
+
+// Redis connection using REDIS_URL
+const redis = new Redis(process.env.REDIS_URL || '');
 
 // Custom ID generator với tiền tố 3DO-
 const generateId = customAlphabet('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', 8);
@@ -56,16 +59,18 @@ export async function createReceipt(
   };
 
   // Lưu receipt
-  await kv.set(RECEIPT_KEY(id), receipt);
+  await redis.set(RECEIPT_KEY(id), JSON.stringify(receipt));
   
   // Thêm ID vào list admin (thêm vào đầu)
-  await kv.lpush(ADMIN_LIST_KEY, id);
+  await redis.lpush(ADMIN_LIST_KEY, id);
 
   return receipt;
 }
 
 export async function getReceipt(id: string): Promise<Receipt | null> {
-  return await kv.get<Receipt>(RECEIPT_KEY(id));
+  const data = await redis.get(RECEIPT_KEY(id));
+  if (!data) return null;
+  return JSON.parse(data) as Receipt;
 }
 
 export async function updateReceipt(
@@ -76,7 +81,7 @@ export async function updateReceipt(
   if (!receipt) return null;
 
   const updated = { ...receipt, ...updates };
-  await kv.set(RECEIPT_KEY(id), updated);
+  await redis.set(RECEIPT_KEY(id), JSON.stringify(updated));
   return updated;
 }
 
@@ -93,16 +98,16 @@ export async function signReceipt(
 
 export async function deleteReceipt(id: string): Promise<boolean> {
   // Xóa receipt
-  await kv.del(RECEIPT_KEY(id));
+  await redis.del(RECEIPT_KEY(id));
   
   // Xóa khỏi list admin
-  await kv.lrem(ADMIN_LIST_KEY, 0, id);
+  await redis.lrem(ADMIN_LIST_KEY, 0, id);
 
   return true;
 }
 
 export async function getAllReceiptIds(): Promise<string[]> {
-  return (await kv.lrange(ADMIN_LIST_KEY, 0, -1)) || [];
+  return (await redis.lrange(ADMIN_LIST_KEY, 0, -1)) || [];
 }
 
 export async function getAllReceipts(): Promise<Receipt[]> {
@@ -118,4 +123,4 @@ export async function getAllReceipts(): Promise<Receipt[]> {
   return receipts.filter((r): r is Receipt => r !== null);
 }
 
-export { kv };
+export { redis };
