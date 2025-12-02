@@ -1,0 +1,324 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { 
+  Plus, 
+  Share2, 
+  Edit3, 
+  Trash2, 
+  LogOut, 
+  FileText,
+  CheckCircle2,
+  Search,
+  Calendar,
+  Receipt,
+  Wallet,
+  Clock
+} from 'lucide-react';
+import { ReceiptData, getReceipts, deleteReceipt } from '@/lib/storage';
+import { generateShareUrl, copyToClipboard, ShareableReceiptData } from '@/lib/url-utils';
+import { formatNumber } from '@/lib/utils';
+import ReceiptEditor from './ReceiptEditor';
+
+interface DashboardProps {
+  onLogout: () => void;
+}
+
+export default function Dashboard({ onLogout }: DashboardProps) {
+  const [receipts, setReceipts] = useState<ReceiptData[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editingReceipt, setEditingReceipt] = useState<ReceiptData | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadReceipts();
+  }, []);
+
+  const loadReceipts = () => {
+    setReceipts(getReceipts());
+  };
+
+  const handleLogout = () => {
+    sessionStorage.removeItem('isLoggedIn');
+    onLogout();
+  };
+
+  const handleCreateNew = () => {
+    setEditingReceipt(null);
+    setIsEditorOpen(true);
+  };
+
+  const handleEdit = (receipt: ReceiptData) => {
+    setEditingReceipt(receipt);
+    setIsEditorOpen(true);
+  };
+
+  const handleDelete = (id: string) => {
+    if (confirm('Bạn có chắc muốn xóa biên nhận này?')) {
+      deleteReceipt(id);
+      loadReceipts();
+    }
+  };
+
+  const handleShare = async (receipt: ReceiptData) => {
+    const shareData: ShareableReceiptData = {
+      hoTenNguoiNhan: receipt.hoTenNguoiNhan,
+      hoTenNguoiGui: receipt.hoTenNguoiGui,
+      donViNguoiNhan: receipt.donViNguoiNhan,
+      donViNguoiGui: receipt.donViNguoiGui,
+      lyDoNop: receipt.lyDoNop,
+      soTien: receipt.soTien,
+      bangChu: receipt.bangChu,
+      ngayThang: receipt.ngayThang,
+      diaDiem: receipt.diaDiem,
+      signatureNguoiNhan: '',
+      signatureNguoiGui: '',
+      receiptId: receipt.id,
+    };
+
+    const url = generateShareUrl(shareData);
+    console.log('Share URL length:', url.length);
+    
+    const success = await copyToClipboard(url);
+    
+    if (success) {
+      setCopiedId(receipt.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
+  };
+
+  const handleEditorClose = () => {
+    setIsEditorOpen(false);
+    setEditingReceipt(null);
+    loadReceipts();
+  };
+
+  const filteredReceipts = receipts.filter(r => 
+    r.hoTenNguoiNhan.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    r.hoTenNguoiGui.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    r.lyDoNop.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const formatDate = (dateStr: string) => {
+    try {
+      return new Date(dateStr).toLocaleDateString('vi-VN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  if (isEditorOpen) {
+    return (
+      <ReceiptEditor
+        initialData={editingReceipt}
+        onClose={handleEditorClose}
+        onSave={handleEditorClose}
+      />
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-glass">
+      {/* Header */}
+      <header className="glass border-b border-white/20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-black/90 flex items-center justify-center">
+                <FileText className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-gray-900">Quản lý Biên nhận</h1>
+                <p className="text-sm text-gray-500">Dashboard Admin</p>
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 glass-button-outline rounded-xl transition-all"
+            >
+              <LogOut className="w-5 h-5" />
+              <span className="hidden sm:inline">Đăng xuất</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Actions Bar */}
+        <div className="flex flex-col sm:flex-row gap-4 mb-6">
+          <div className="flex-1 relative">
+            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Tìm kiếm biên nhận..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 glass-input rounded-xl"
+            />
+          </div>
+          <button
+            onClick={handleCreateNew}
+            className="flex items-center justify-center gap-2 px-6 py-3 glass-button rounded-xl font-medium"
+          >
+            <Plus className="w-5 h-5" />
+            Tạo mới
+          </button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div className="glass-card rounded-2xl p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                <Receipt className="w-5 h-5 text-gray-700" />
+              </div>
+              <p className="text-sm text-gray-500 font-medium">Tổng biên nhận</p>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{receipts.length}</p>
+          </div>
+          <div className="glass-card rounded-2xl p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                <Wallet className="w-5 h-5 text-gray-700" />
+              </div>
+              <p className="text-sm text-gray-500 font-medium">Tổng số tiền</p>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">
+              {formatNumber(receipts.reduce((sum, r) => sum + r.soTien, 0))} <span className="text-lg font-normal text-gray-500">₫</span>
+            </p>
+          </div>
+          <div className="glass-card rounded-2xl p-5">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                <Clock className="w-5 h-5 text-gray-700" />
+              </div>
+              <p className="text-sm text-gray-500 font-medium">Hôm nay</p>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">
+              {receipts.filter(r => {
+                const today = new Date().toDateString();
+                return new Date(r.createdAt).toDateString() === today;
+              }).length}
+            </p>
+          </div>
+        </div>
+
+        {/* Receipts List */}
+        {filteredReceipts.length === 0 ? (
+          <div className="glass-card rounded-2xl p-12 text-center">
+            <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
+              <FileText className="w-10 h-10 text-gray-400" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-700 mb-2">
+              {searchTerm ? 'Không tìm thấy biên nhận' : 'Chưa có biên nhận nào'}
+            </h3>
+            <p className="text-gray-500 mb-6">
+              {searchTerm ? 'Thử tìm với từ khóa khác' : 'Bắt đầu bằng cách tạo biên nhận mới'}
+            </p>
+            {!searchTerm && (
+              <button
+                onClick={handleCreateNew}
+                className="inline-flex items-center gap-2 px-6 py-3 glass-button rounded-xl font-medium"
+              >
+                <Plus className="w-5 h-5" />
+                Tạo biên nhận đầu tiên
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="glass-card rounded-2xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50/50 border-b border-gray-200/50">
+                  <tr>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Người nhận</th>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Người gửi</th>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Số tiền</th>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Lý do</th>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Ngày tạo</th>
+                    <th className="px-5 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredReceipts.map((receipt) => (
+                    <tr key={receipt.id} className="hover:bg-gray-50/50 transition-colors">
+                      <td className="px-5 py-4">
+                        <div>
+                          <p className="font-medium text-gray-900">{receipt.hoTenNguoiNhan || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{receipt.donViNguoiNhan || '-'}</p>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div>
+                          <p className="font-medium text-gray-900">{receipt.hoTenNguoiGui || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{receipt.donViNguoiGui || '-'}</p>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className="font-semibold text-gray-900">
+                          {formatNumber(receipt.soTien)} ₫
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <p className="text-gray-600 truncate max-w-[200px]" title={receipt.lyDoNop}>
+                          {receipt.lyDoNop || '-'}
+                        </p>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                          <Calendar className="w-4 h-4" />
+                          {formatDate(receipt.createdAt)}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleShare(receipt)}
+                            className={`p-2.5 rounded-xl transition-all ${
+                              copiedId === receipt.id 
+                                ? 'bg-green-100 text-green-700' 
+                                : 'hover:bg-gray-100 text-gray-500 hover:text-gray-900'
+                            }`}
+                            title={copiedId === receipt.id ? 'Đã copy!' : 'Lấy link chia sẻ'}
+                          >
+                            {copiedId === receipt.id ? (
+                              <CheckCircle2 className="w-5 h-5" />
+                            ) : (
+                              <Share2 className="w-5 h-5" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => handleEdit(receipt)}
+                            className="p-2.5 hover:bg-gray-100 text-gray-500 hover:text-gray-900 rounded-xl transition-all"
+                            title="Chỉnh sửa"
+                          >
+                            <Edit3 className="w-5 h-5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(receipt.id)}
+                            className="p-2.5 hover:bg-red-50 text-gray-500 hover:text-red-600 rounded-xl transition-all"
+                            title="Xóa"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
