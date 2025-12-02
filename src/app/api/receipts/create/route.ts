@@ -4,12 +4,13 @@ import { createReceipt, ReceiptInfo, SignaturePoint } from '@/lib/kv';
 interface CreateReceiptRequest {
   info: ReceiptInfo;
   signaturePoints?: SignaturePoint[][] | null;
+  signatureNguoiNhan?: string; // Chữ ký admin
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: CreateReceiptRequest = await request.json();
-    const { info, signaturePoints } = body;
+    const { info, signaturePoints, signatureNguoiNhan } = body;
 
     if (!info) {
       return NextResponse.json(
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const receipt = await createReceipt(info, signaturePoints);
+    const receipt = await createReceipt(info, signaturePoints, signatureNguoiNhan);
 
     // Generate signing URL
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 

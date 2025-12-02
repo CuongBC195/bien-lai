@@ -1,18 +1,25 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
-  Download, 
-  Send,
-  Check,
-  AlertCircle,
+  FileDown, 
+  PenLine, 
+  RotateCcw, 
   Loader2,
-  FileText,
-  PenTool
+  CheckCircle2,
+  AlertCircle,
+  Send,
+  FileText
 } from 'lucide-react';
-import SignatureCanvas from 'react-signature-canvas';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import SignatureModal from './SignatureModal';
+import { 
+  numberToVietnamese, 
+  formatNumber, 
+  formatVietnameseDate,
+  cn 
+} from '@/lib/utils';
 
 interface ReceiptInfo {
   hoTenNguoiNhan: string;
@@ -37,6 +44,8 @@ interface Receipt {
   id: string;
   info: ReceiptInfo;
   signaturePoints: SignaturePoint[][] | null;
+  signatureNguoiNhan?: string; // Chữ ký admin
+  signatureNguoiGui?: string; // Chữ ký khách
   status: 'pending' | 'signed';
   createdAt: number;
   signedAt?: number;
@@ -44,22 +53,29 @@ interface Receipt {
 
 interface ReceiptViewKVProps {
   receiptId: string;
-  onSignComplete?: () => void;
 }
 
-export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptViewKVProps) {
+type ActionStatus = 'idle' | 'loading' | 'success' | 'error';
+
+export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
-  const sigCanvas = useRef<SignatureCanvas>(null);
   
+  // Receipt data from server
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isSigned, setIsSigned] = useState(false);
-  const [signing, setSigning] = useState(false);
-  const [sending, setSending] = useState(false);
+  
+  // Signature state
+  const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [signatureNguoiGui, setSignatureNguoiGui] = useState<string>('');
+  const [signatureNguoiNhan, setSignatureNguoiNhan] = useState<string>('');
+  
+  // Action states
+  const [exportStatus, setExportStatus] = useState<ActionStatus>('idle');
+  const [sendStatus, setSendStatus] = useState<ActionStatus>('idle');
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // Fetch receipt by ID
+  // Fetch receipt on mount
   useEffect(() => {
     const fetchReceipt = async () => {
       try {
@@ -69,7 +85,22 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
         
         if (data.success && data.receipt) {
           setReceipt(data.receipt);
-          setIsSigned(data.receipt.status === 'signed');
+          // Load admin signature if exists
+          if (data.receipt.signatureNguoiNhan) {
+            setSignatureNguoiNhan(data.receipt.signatureNguoiNhan);
+          }
+          // If already signed, show success
+          if (data.receipt.status === 'signed') {
+            // Load customer signature if exists
+            if (data.receipt.signatureNguoiGui) {
+              setSignatureNguoiGui(data.receipt.signatureNguoiGui);
+            }
+            setShowSuccess(true);
+          } else {
+            // Not signed yet - make sure signature state is empty
+            setSignatureNguoiGui('');
+            setShowSuccess(false);
+          }
         } else {
           setError(data.error || 'Không tìm thấy biên lai');
         }
@@ -84,45 +115,85 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
     fetchReceipt();
   }, [receiptId]);
 
-  // Load existing signature if any
-  useEffect(() => {
-    if (receipt?.signaturePoints && sigCanvas.current) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sigCanvas.current.fromData(receipt.signaturePoints as any);
+  // Export PDF
+  const exportPDF = useCallback(async (): Promise<Blob | null> => {
+    if (!receiptRef.current) return null;
+
+    try {
+      setExportStatus('loading');
+      
+      const canvas = await html2canvas(receiptRef.current, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        ignoreElements: (element) => {
+          return element.classList?.contains('print:hidden');
+        },
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const imgX = (pdfWidth - imgWidth * ratio) / 2;
+      const imgY = 10;
+
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+      
+      setExportStatus('success');
+      setTimeout(() => setExportStatus('idle'), 2000);
+      
+      return pdf.output('blob');
+    } catch (error) {
+      console.error('Error exporting PDF:', error);
+      setExportStatus('error');
+      setTimeout(() => setExportStatus('idle'), 2000);
+      return null;
     }
-  }, [receipt?.signaturePoints]);
+  }, []);
 
-  // Format currency
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('vi-VN').format(amount);
-  };
-
-  // Clear signature
-  const clearSignature = () => {
-    sigCanvas.current?.clear();
+  const handleExportPDF = async () => {
+    const blob = await exportPDF();
+    if (blob && receipt) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `bien-nhan-${receipt.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
   };
 
   // Sign and send
-  const handleSign = async () => {
-    if (!sigCanvas.current || sigCanvas.current.isEmpty()) {
+  const handleSignAndSend = async () => {
+    if (!signatureNguoiGui) {
       alert('Vui lòng ký tên trước khi gửi!');
       return;
     }
-
     if (!receipt) return;
 
-    setSigning(true);
-    try {
-      // Get signature points
-      const signaturePoints = sigCanvas.current.toData();
+    setSendStatus('loading');
 
-      // Save signature to database
+    try {
+      // Update signature in database
       const signRes = await fetch('/api/receipts/sign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: receipt.id,
-          signaturePoints,
+          signatureNguoiGui: signatureNguoiGui,
         }),
       });
 
@@ -131,9 +202,8 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
         throw new Error(signData.error);
       }
 
-      setIsSigned(true);
-      setSigning(false);
-      setSending(true);
+      // Wait for state update
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       // Capture receipt image
       if (receiptRef.current) {
@@ -141,6 +211,7 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
           scale: 2,
           backgroundColor: '#ffffff',
           useCORS: true,
+          ignoreElements: (element) => element.classList?.contains('print:hidden'),
         });
         const imageBase64 = canvas.toDataURL('image/jpeg', 0.8);
 
@@ -155,33 +226,13 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
         });
       }
 
+      setSendStatus('success');
       setShowSuccess(true);
-      onSignComplete?.();
     } catch (error) {
       console.error('Error signing:', error);
-      alert('Có lỗi xảy ra khi ký!');
-    } finally {
-      setSigning(false);
-      setSending(false);
+      setSendStatus('error');
+      setTimeout(() => setSendStatus('idle'), 2000);
     }
-  };
-
-  // Download PDF
-  const handleDownload = async () => {
-    if (!receiptRef.current || !receipt) return;
-
-    const canvas = await html2canvas(receiptRef.current, {
-      scale: 2,
-      backgroundColor: '#ffffff',
-    });
-
-    const imgData = canvas.toDataURL('image/jpeg', 1.0);
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-
-    pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save(`bien-lai-${receipt.id}.pdf`);
   };
 
   // Loading state
@@ -223,233 +274,280 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
     );
   }
 
-  // Success state after signing
-  if (showSuccess) {
-    return (
-      <div className="min-h-screen bg-gradient-glass flex items-center justify-center p-4">
-        <div className="glass-card rounded-2xl p-8 max-w-md w-full text-center shadow-xl">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Check className="w-8 h-8 text-green-600" />
-          </div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">
-            Ký xác nhận thành công!
-          </h2>
-          <p className="text-gray-500 mb-6">
-            Biên lai đã được gửi đến quản trị viên qua Email và Telegram.
-          </p>
-          <button
-            onClick={handleDownload}
-            className="w-full glass-button py-3 rounded-xl flex items-center justify-center gap-2"
-          >
-            <Download className="w-4 h-4" />
-            Tải PDF
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  // Main view - Customer signing (always show, with success message if needed)
   return (
-    <div className="min-h-screen bg-gradient-glass p-4 md:p-6">
-      {/* Header */}
-      <div className="max-w-3xl mx-auto mb-6">
-        <div className="glass-card rounded-2xl p-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <FileText className="w-5 h-5" />
-              Biên lai: {receipt.id}
-            </h1>
-            <p className="text-gray-500 text-sm mt-1">
-              {isSigned ? 'Đã ký xác nhận' : 'Chờ ký xác nhận'}
+    <div className="min-h-screen bg-gradient-glass py-8 px-4">
+      <div className="max-w-4xl mx-auto">
+        {/* Success Message - Show if already signed */}
+        {showSuccess && (
+          <div className="glass-card rounded-2xl p-6 mb-6 text-center border-2 border-green-400">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2 className="w-8 h-8 text-green-600" />
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+              Biên lai đã được ký xác nhận!
+            </h2>
+            <p className="text-gray-500">
+              Bạn có thể tải PDF để lưu trữ.
             </p>
           </div>
-          {isSigned && (
-            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm flex items-center gap-1 font-medium">
-              <Check className="w-4 h-4" />
-              Đã ký
-            </span>
+        )}
+
+        {/* Header Bar */}
+        <div className="glass-card rounded-2xl p-4 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-black/90 flex items-center justify-center">
+              <FileText className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="font-semibold text-gray-900">Biên lai #{receipt.id}</h1>
+              <p className="text-sm text-gray-500">
+                {showSuccess 
+                  ? 'Đã hoàn tất - Có thể tải PDF bên dưới'
+                  : signatureNguoiGui 
+                    ? 'Đã ký - Nhấn "Hoàn tất & Gửi" bên dưới để xác nhận' 
+                    : 'Vui lòng ký xác nhận tại ô "Người gửi tiền" bên dưới'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Receipt Paper */}
+        <div 
+          ref={receiptRef}
+          className="bg-white shadow-2xl mx-auto rounded-lg"
+          style={{
+            width: '210mm',
+            minHeight: '297mm',
+            padding: '20mm 25mm',
+            fontFamily: '"Times New Roman", Tinos, serif',
+          }}
+        >
+          {/* Header */}
+          <header className="text-center mb-8">
+            <h2 className="text-base font-bold tracking-wide">
+              CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+            </h2>
+            <p className="text-base mt-1">
+              <span style={{ textDecoration: 'underline', textUnderlineOffset: '4px' }}>
+                Độc lập - Tự do - Hạnh phúc
+              </span>
+            </p>
+            <div className="mt-8 text-gray-400">
+              -----------------------
+            </div>
+            <h1 className="text-2xl font-bold mt-6 tracking-wider">
+              GIẤY BIÊN NHẬN TIỀN
+            </h1>
+          </header>
+
+          {/* Body - Read-only */}
+          <div className="space-y-5 text-base leading-relaxed">
+            <div className="flex items-baseline gap-2">
+              <span className="whitespace-nowrap">Họ và tên người nhận:</span>
+              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
+                {receipt.info.hoTenNguoiNhan || '...'}
+              </span>
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className="whitespace-nowrap">Đơn vị người nhận:</span>
+              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
+                {receipt.info.donViNguoiNhan || '...'}
+              </span>
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className="whitespace-nowrap">Họ và tên người gửi:</span>
+              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
+                {receipt.info.hoTenNguoiGui || '...'}
+              </span>
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className="whitespace-nowrap">Đơn vị người gửi:</span>
+              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
+                {receipt.info.donViNguoiGui || '...'}
+              </span>
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className="whitespace-nowrap">Lý do nộp:</span>
+              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
+                {receipt.info.lyDoNop || '...'}
+              </span>
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className="whitespace-nowrap">Số tiền:</span>
+              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 font-semibold">
+                {formatNumber(receipt.info.soTien)}
+              </span>
+              <span className="whitespace-nowrap">VNĐ</span>
+            </div>
+
+            <div className="flex items-baseline gap-2">
+              <span className="whitespace-nowrap">Bằng chữ:</span>
+              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 italic text-gray-700">
+                {receipt.info.bangChu || numberToVietnamese(receipt.info.soTien)}
+              </span>
+            </div>
+          </div>
+
+          {/* Footer with Signatures */}
+          <footer className="mt-16">
+            <div className="text-right italic mb-10">
+              <span>{receipt.info.diaDiem || 'TP. Cần Thơ'}, </span>
+              <span>{receipt.info.ngayThang || formatVietnameseDate(new Date())}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-8 text-center">
+              {/* Người gửi tiền - Khách ký */}
+              <div>
+                <p className="font-bold mb-2">Người gửi tiền</p>
+                <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
+                
+                <div className="min-h-[100px] flex flex-col items-center justify-center">
+                  {signatureNguoiGui && signatureNguoiGui.startsWith('data:') ? (
+                    <div className="relative group">
+                      <img 
+                        src={signatureNguoiGui} 
+                        alt="Chữ ký người gửi" 
+                        className="h-16 w-auto object-contain"
+                        style={{ imageRendering: 'auto', minWidth: '80px' }}
+                      />
+                      {!showSuccess && (
+                        <button
+                          onClick={() => setSignatureNguoiGui('')}
+                          className="absolute -top-2 -right-2 p-1 bg-black text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity print:hidden"
+                          title="Xóa chữ ký"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setIsSignatureModalOpen(true)}
+                      className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors print:hidden"
+                    >
+                      <PenLine className="w-4 h-4" />
+                      Ký xác nhận
+                    </button>
+                  )}
+                </div>
+
+                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
+                  {receipt.info.hoTenNguoiGui || '...........................'}
+                </p>
+              </div>
+
+              {/* Người nhận tiền */}
+              <div>
+                <p className="font-bold mb-2">Người nhận tiền</p>
+                <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
+                
+                <div className="min-h-[100px] flex flex-col items-center justify-center">
+                  {signatureNguoiNhan ? (
+                    <img 
+                      src={signatureNguoiNhan} 
+                      alt="Chữ ký người nhận" 
+                      className="h-16 w-auto object-contain"
+                      style={{ imageRendering: 'auto', minWidth: '80px' }}
+                    />
+                  ) : (
+                    <span className="text-gray-400 italic">Chưa ký</span>
+                  )}
+                </div>
+
+                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
+                  {receipt.info.hoTenNguoiNhan || '...........................'}
+                </p>
+              </div>
+            </div>
+          </footer>
+        </div>
+
+        {/* Action Buttons Below Receipt */}
+        <div className="mt-6 bg-white rounded-2xl p-6 shadow-lg flex flex-wrap justify-center gap-4 print:hidden">
+          {/* Send Button - Show until success */}
+          {!showSuccess && (
+            <button
+              onClick={handleSignAndSend}
+              disabled={sendStatus === 'loading' || !signatureNguoiGui || !signatureNguoiGui.startsWith('data:')}
+              className={cn(
+                'inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all',
+                sendStatus === 'success' 
+                  ? 'bg-green-600 text-white' 
+                  : sendStatus === 'error'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-black text-white hover:bg-gray-800',
+                (sendStatus === 'loading' || !signatureNguoiGui || !signatureNguoiGui.startsWith('data:')) && 'opacity-30 cursor-not-allowed'
+              )}
+            >
+              {sendStatus === 'loading' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Đang gửi...
+                </>
+              ) : sendStatus === 'success' ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  Đã gửi!
+                </>
+              ) : sendStatus === 'error' ? (
+                <>
+                  <AlertCircle className="w-4 h-4" />
+                  Thử lại
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  Hoàn tất & Gửi
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Export PDF Button - Only show after send success or showSuccess */}
+          {(showSuccess || sendStatus === 'success') && (
+            <button
+              onClick={handleExportPDF}
+              disabled={exportStatus === 'loading'}
+              className={cn(
+                'inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all border-2 border-black',
+                exportStatus === 'success' 
+                  ? 'bg-green-600 text-white border-green-600' 
+                  : 'bg-white text-black hover:bg-gray-100'
+              )}
+            >
+              {exportStatus === 'loading' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Đang xuất...
+                </>
+              ) : exportStatus === 'success' ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4" />
+                  Đã tải!
+                </>
+              ) : (
+                <>
+                  <FileDown className="w-4 h-4" />
+                  Xuất PDF
+                </>
+              )}
+            </button>
           )}
         </div>
       </div>
 
-      {/* Receipt Preview */}
-      <div className="max-w-3xl mx-auto mb-6">
-        <div 
-          ref={receiptRef}
-          className="bg-white rounded-2xl p-6 md:p-8 shadow-lg border border-gray-100"
-          style={{ fontFamily: 'Georgia, serif' }}
-        >
-          {/* Header */}
-          <div className="text-center mb-6 pb-4 border-b-2 border-gray-200">
-            <h2 className="text-2xl font-bold text-gray-800 mb-1">
-              BIÊN NHẬN TIỀN
-            </h2>
-            <p className="text-gray-500 text-sm">
-              {receipt.info.donViNguoiNhan || 'E-Receipt System'}
-            </p>
-          </div>
-
-          {/* Content */}
-          <div className="space-y-4 text-gray-700">
-            <div className="flex">
-              <span className="w-40 text-gray-500">Người nhận tiền:</span>
-              <span className="font-medium">{receipt.info.hoTenNguoiNhan || 'N/A'}</span>
-            </div>
-            <div className="flex">
-              <span className="w-40 text-gray-500">Đơn vị:</span>
-              <span>{receipt.info.donViNguoiNhan || 'N/A'}</span>
-            </div>
-            
-            <div className="h-px bg-gray-200 my-4"></div>
-            
-            <div className="flex">
-              <span className="w-40 text-gray-500">Người nộp tiền:</span>
-              <span className="font-medium">{receipt.info.hoTenNguoiGui || 'N/A'}</span>
-            </div>
-            <div className="flex">
-              <span className="w-40 text-gray-500">Đơn vị:</span>
-              <span>{receipt.info.donViNguoiGui || 'N/A'}</span>
-            </div>
-            
-            <div className="h-px bg-gray-200 my-4"></div>
-            
-            <div className="flex">
-              <span className="w-40 text-gray-500">Lý do:</span>
-              <span>{receipt.info.lyDoNop || 'N/A'}</span>
-            </div>
-            
-            <div className="bg-amber-50 p-4 rounded-lg my-4 border border-amber-100">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-600 font-medium">Số tiền:</span>
-                <span className="text-2xl font-bold text-amber-600">
-                  {formatCurrency(receipt.info.soTien)} VNĐ
-                </span>
-              </div>
-              <div className="text-gray-500 text-sm italic mt-1">
-                ({receipt.info.bangChu})
-              </div>
-            </div>
-            
-            <div className="flex">
-              <span className="w-40 text-gray-500">Ngày:</span>
-              <span>{receipt.info.ngayThang}</span>
-            </div>
-            <div className="flex">
-              <span className="w-40 text-gray-500">Địa điểm:</span>
-              <span>{receipt.info.diaDiem}</span>
-            </div>
-          </div>
-
-          {/* Signature Area */}
-          <div className="mt-8 pt-6 border-t border-gray-200">
-            <div className="grid md:grid-cols-2 gap-8">
-              <div className="text-center">
-                <p className="font-medium text-gray-600 mb-2">Người nhận tiền</p>
-                <p className="text-gray-400 text-sm">(Ký, ghi rõ họ tên)</p>
-                <div className="h-24 border-b border-gray-300 mt-4"></div>
-                <p className="mt-2 text-gray-700">{receipt.info.hoTenNguoiNhan}</p>
-              </div>
-              <div className="text-center">
-                <p className="font-medium text-gray-600 mb-2">Người nộp tiền</p>
-                <p className="text-gray-400 text-sm">(Ký, ghi rõ họ tên)</p>
-                <div className="h-24 border-b border-gray-300 mt-4 relative">
-                  {/* Show signature canvas or existing signature */}
-                  {!isSigned && (
-                    <SignatureCanvas
-                      ref={sigCanvas}
-                      canvasProps={{
-                        className: 'absolute inset-0 w-full h-full',
-                      }}
-                      backgroundColor="transparent"
-                    />
-                  )}
-                  {isSigned && receipt.signaturePoints && (
-                    <SignatureCanvas
-                      ref={sigCanvas}
-                      canvasProps={{
-                        className: 'absolute inset-0 w-full h-full pointer-events-none',
-                      }}
-                      backgroundColor="transparent"
-                    />
-                  )}
-                </div>
-                <p className="mt-2 text-gray-700">{receipt.info.hoTenNguoiGui}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="mt-8 pt-4 border-t border-gray-100 text-center">
-            <p className="text-gray-400 text-xs">
-              Mã biên lai: {receipt.id} | Tạo lúc: {new Date(receipt.createdAt).toLocaleString('vi-VN')}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Actions */}
-      {!isSigned && (
-        <div className="max-w-3xl mx-auto">
-          <div className="glass-card rounded-2xl p-4">
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div className="flex items-center gap-2 text-gray-500">
-                <PenTool className="w-4 h-4" />
-                <span className="text-sm">Ký vào ô phía trên, sau đó nhấn &quot;Hoàn tất & Gửi&quot;</span>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={clearSignature}
-                  className="px-4 py-2 glass-button-outline rounded-xl"
-                >
-                  Xóa chữ ký
-                </button>
-                <button
-                  onClick={handleSign}
-                  disabled={signing || sending}
-                  className="px-6 py-2 glass-button rounded-xl flex items-center gap-2 disabled:opacity-50"
-                >
-                  {signing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Đang ký...
-                    </>
-                  ) : sending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Đang gửi...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      Hoàn tất & Gửi
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isSigned && (
-        <div className="max-w-3xl mx-auto">
-          <div className="glass-card rounded-2xl p-4">
-            <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div className="flex items-center gap-2 text-green-600">
-                <Check className="w-4 h-4" />
-                <span className="text-sm font-medium">Biên lai đã được ký xác nhận</span>
-              </div>
-              <button
-                onClick={handleDownload}
-                className="px-6 py-2 glass-button rounded-xl flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Tải PDF
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Signature Modal */}
+      <SignatureModal
+        isOpen={isSignatureModalOpen}
+        onClose={() => setIsSignatureModalOpen(false)}
+        onApply={(sig) => setSignatureNguoiGui(sig)}
+      />
     </div>
   );
 }

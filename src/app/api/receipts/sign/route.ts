@@ -3,22 +3,23 @@ import { signReceipt, SignaturePoint } from '@/lib/kv';
 
 interface SignReceiptRequest {
   id: string;
-  signaturePoints: SignaturePoint[][];
+  signaturePoints?: SignaturePoint[][];
+  signatureNguoiGui?: string; // Chữ ký khách base64
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: SignReceiptRequest = await request.json();
-    const { id, signaturePoints } = body;
+    const { id, signaturePoints, signatureNguoiGui } = body;
 
-    if (!id || !signaturePoints) {
+    if (!id || (!signaturePoints && !signatureNguoiGui)) {
       return NextResponse.json(
         { success: false, error: 'Receipt ID and signature are required' },
         { status: 400 }
       );
     }
 
-    const receipt = await signReceipt(id, signaturePoints);
+    const receipt = await signReceipt(id, signaturePoints || [], signatureNguoiGui);
 
     if (!receipt) {
       return NextResponse.json(

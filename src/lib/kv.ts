@@ -35,6 +35,8 @@ export interface Receipt {
   id: string;
   info: ReceiptInfo;
   signaturePoints: SignaturePoint[][] | null;
+  signatureNguoiNhan?: string; // Chữ ký admin (base64)
+  signatureNguoiGui?: string; // Chữ ký khách (base64)
   status: 'pending' | 'signed';
   createdAt: number;
   signedAt?: number;
@@ -47,13 +49,15 @@ const ADMIN_LIST_KEY = 'admin:receipt_ids';
 // CRUD Operations
 export async function createReceipt(
   info: ReceiptInfo,
-  signaturePoints?: SignaturePoint[][] | null
+  signaturePoints?: SignaturePoint[][] | null,
+  signatureNguoiNhan?: string
 ): Promise<Receipt> {
   const id = createReceiptId();
   const receipt: Receipt = {
     id,
     info,
     signaturePoints: signaturePoints || null,
+    signatureNguoiNhan: signatureNguoiNhan || undefined,
     status: signaturePoints ? 'signed' : 'pending',
     createdAt: Date.now(),
   };
@@ -87,10 +91,12 @@ export async function updateReceipt(
 
 export async function signReceipt(
   id: string,
-  signaturePoints: SignaturePoint[][]
+  signaturePoints: SignaturePoint[][],
+  signatureNguoiGui?: string
 ): Promise<Receipt | null> {
   return await updateReceipt(id, {
     signaturePoints,
+    signatureNguoiGui: signatureNguoiGui || undefined,
     status: 'signed',
     signedAt: Date.now(),
   });
