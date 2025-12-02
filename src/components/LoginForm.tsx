@@ -19,7 +19,7 @@ export default function LoginForm({ onLoginSuccess }: LoginFormProps) {
 
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    const adminPass = process.env.NEXT_PUBLIC_ADMIN_PASS || 'admin123';
+    const adminPass = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || 'admin123';
     
     if (passcode === adminPass) {
       sessionStorage.setItem('isLoggedIn', 'true');

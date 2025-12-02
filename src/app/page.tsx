@@ -3,8 +3,8 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, FileText } from 'lucide-react';
-import LoginFormKV from '@/components/LoginFormKV';
-import DashboardKV from '@/components/DashboardKV';
+import LoginForm from '@/components/LoginForm';
+import Dashboard from '@/components/Dashboard';
 import ReceiptViewKV from '@/components/ReceiptViewKV';
 
 function HomeContent() {
@@ -24,7 +24,7 @@ function HomeContent() {
     }
 
     // Priority 2: Check auth status (Admin mode)
-    const loggedIn = sessionStorage.getItem('admin_logged_in') === 'true';
+    const loggedIn = sessionStorage.getItem('isLoggedIn') === 'true';
     setIsLoggedIn(loggedIn);
     setIsLoading(false);
   }, [searchParams]);
@@ -34,19 +34,19 @@ function HomeContent() {
   };
 
   const handleLogout = () => {
-    sessionStorage.removeItem('admin_logged_in');
+    sessionStorage.removeItem('isLoggedIn');
     setIsLoggedIn(false);
   };
 
   // Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-black">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-glass">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center">
+          <div className="w-16 h-16 bg-black/90 rounded-2xl flex items-center justify-center">
             <FileText className="w-8 h-8 text-white animate-pulse" />
           </div>
-          <div className="flex items-center gap-2 text-gray-400">
+          <div className="flex items-center gap-2 text-gray-500">
             <Loader2 className="w-5 h-5 animate-spin" />
             <span>Đang tải...</span>
           </div>
@@ -62,22 +62,22 @@ function HomeContent() {
 
   // Priority 2: Not logged in - show login form
   if (!isLoggedIn) {
-    return <LoginFormKV onLogin={handleLoginSuccess} />;
+    return <LoginForm onLoginSuccess={handleLoginSuccess} />;
   }
 
   // Priority 3: Logged in - show admin dashboard
-  return <DashboardKV onLogout={handleLogout} />;
+  return <Dashboard onLogout={handleLogout} />;
 }
 
 export default function Home() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-black">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-glass">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center">
+          <div className="w-16 h-16 bg-black/90 rounded-2xl flex items-center justify-center">
             <FileText className="w-8 h-8 text-white animate-pulse" />
           </div>
-          <div className="flex items-center gap-2 text-gray-400">
+          <div className="flex items-center gap-2 text-gray-500">
             <Loader2 className="w-5 h-5 animate-spin" />
             <span>Đang tải...</span>
           </div>

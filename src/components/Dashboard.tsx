@@ -13,12 +13,39 @@ import {
   Calendar,
   Receipt,
   Wallet,
-  Clock
+  Clock,
+  Loader2
 } from 'lucide-react';
-import { ReceiptData, getReceipts, deleteReceipt } from '@/lib/storage';
-import { generateShareUrl, copyToClipboard, ShareableReceiptData } from '@/lib/url-utils';
 import { formatNumber } from '@/lib/utils';
-import ReceiptEditor from './ReceiptEditor';
+import ReceiptEditorKV from './ReceiptEditorKV';
+
+interface ReceiptInfo {
+  hoTenNguoiNhan: string;
+  hoTenNguoiGui: string;
+  donViNguoiNhan: string;
+  donViNguoiGui: string;
+  lyDoNop: string;
+  soTien: number;
+  bangChu: string;
+  ngayThang: string;
+  diaDiem: string;
+}
+
+interface SignaturePoint {
+  x: number;
+  y: number;
+  time: number;
+  color?: string;
+}
+
+interface ReceiptData {
+  id: string;
+  info: ReceiptInfo;
+  signaturePoints: SignaturePoint[][] | null;
+  status: 'pending' | 'signed';
+  createdAt: number;
+  signedAt?: number;
+}
 
 interface DashboardProps {
   onLogout: () => void;
@@ -30,13 +57,25 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingReceipt, setEditingReceipt] = useState<ReceiptData | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadReceipts();
   }, []);
 
-  const loadReceipts = () => {
-    setReceipts(getReceipts());
+  const loadReceipts = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/receipts/list');
+      const data = await res.json();
+      if (data.success) {
+        setReceipts(data.receipts || []);
+      }
+    } catch (error) {
+      console.error('Error loading receipts:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -54,37 +93,29 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     setIsEditorOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (confirm('Bạn có chắc muốn xóa biên nhận này?')) {
-      deleteReceipt(id);
-      loadReceipts();
+      try {
+        const res = await fetch(`/api/receipts/delete?id=${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          await loadReceipts();
+        }
+      } catch (error) {
+        console.error('Error deleting receipt:', error);
+      }
     }
   };
 
   const handleShare = async (receipt: ReceiptData) => {
-    const shareData: ShareableReceiptData = {
-      hoTenNguoiNhan: receipt.hoTenNguoiNhan,
-      hoTenNguoiGui: receipt.hoTenNguoiGui,
-      donViNguoiNhan: receipt.donViNguoiNhan,
-      donViNguoiGui: receipt.donViNguoiGui,
-      lyDoNop: receipt.lyDoNop,
-      soTien: receipt.soTien,
-      bangChu: receipt.bangChu,
-      ngayThang: receipt.ngayThang,
-      diaDiem: receipt.diaDiem,
-      signatureNguoiNhan: '',
-      signatureNguoiGui: '',
-      receiptId: receipt.id,
-    };
-
-    const url = generateShareUrl(shareData);
-    console.log('Share URL length:', url.length);
+    const url = `${window.location.origin}/?id=${receipt.id}`;
     
-    const success = await copyToClipboard(url);
-    
-    if (success) {
+    try {
+      await navigator.clipboard.writeText(url);
       setCopiedId(receipt.id);
       setTimeout(() => setCopiedId(null), 2000);
+    } catch (error) {
+      console.error('Error copying to clipboard:', error);
     }
   };
 
@@ -95,14 +126,14 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   };
 
   const filteredReceipts = receipts.filter(r => 
-    r.hoTenNguoiNhan.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.hoTenNguoiGui.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    r.lyDoNop.toLowerCase().includes(searchTerm.toLowerCase())
+    (r.info?.hoTenNguoiNhan || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (r.info?.hoTenNguoiGui || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (r.info?.lyDoNop || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (timestamp: number) => {
     try {
-      return new Date(dateStr).toLocaleDateString('vi-VN', {
+      return new Date(timestamp).toLocaleDateString('vi-VN', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -110,16 +141,16 @@ export default function Dashboard({ onLogout }: DashboardProps) {
         minute: '2-digit'
       });
     } catch {
-      return dateStr;
+      return 'N/A';
     }
   };
 
   if (isEditorOpen) {
     return (
-      <ReceiptEditor
-        initialData={editingReceipt}
-        onClose={handleEditorClose}
+      <ReceiptEditorKV
+        receipt={editingReceipt}
         onSave={handleEditorClose}
+        onCancel={handleEditorClose}
       />
     );
   }
@@ -192,7 +223,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <p className="text-sm text-gray-500 font-medium">Tổng số tiền</p>
             </div>
             <p className="text-3xl font-bold text-gray-900">
-              {formatNumber(receipts.reduce((sum, r) => sum + r.soTien, 0))} <span className="text-lg font-normal text-gray-500">₫</span>
+              {formatNumber(receipts.reduce((sum, r) => sum + (r.info?.soTien || 0), 0))} <span className="text-lg font-normal text-gray-500">₫</span>
             </p>
           </div>
           <div className="glass-card rounded-2xl p-5">
@@ -200,19 +231,21 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
                 <Clock className="w-5 h-5 text-gray-700" />
               </div>
-              <p className="text-sm text-gray-500 font-medium">Hôm nay</p>
+              <p className="text-sm text-gray-500 font-medium">Đã ký</p>
             </div>
             <p className="text-3xl font-bold text-gray-900">
-              {receipts.filter(r => {
-                const today = new Date().toDateString();
-                return new Date(r.createdAt).toDateString() === today;
-              }).length}
+              {receipts.filter(r => r.status === 'signed').length}
             </p>
           </div>
         </div>
 
         {/* Receipts List */}
-        {filteredReceipts.length === 0 ? (
+        {loading ? (
+          <div className="glass-card rounded-2xl p-12 text-center">
+            <Loader2 className="w-10 h-10 animate-spin text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-500">Đang tải dữ liệu...</p>
+          </div>
+        ) : filteredReceipts.length === 0 ? (
           <div className="glass-card rounded-2xl p-12 text-center">
             <div className="w-20 h-20 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
               <FileText className="w-10 h-10 text-gray-400" />
@@ -239,10 +272,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <table className="w-full">
                 <thead className="bg-gray-50/50 border-b border-gray-200/50">
                   <tr>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Người nhận</th>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Người gửi</th>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Số tiền</th>
-                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Lý do</th>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Trạng thái</th>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Ngày tạo</th>
                     <th className="px-5 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Thao tác</th>
                   </tr>
@@ -251,26 +285,39 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   {filteredReceipts.map((receipt) => (
                     <tr key={receipt.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-5 py-4">
+                        <code className="text-sm bg-gray-100 px-2 py-1 rounded text-gray-700">
+                          {receipt.id}
+                        </code>
+                      </td>
+                      <td className="px-5 py-4">
                         <div>
-                          <p className="font-medium text-gray-900">{receipt.hoTenNguoiNhan || 'N/A'}</p>
-                          <p className="text-sm text-gray-500">{receipt.donViNguoiNhan || '-'}</p>
+                          <p className="font-medium text-gray-900">{receipt.info?.hoTenNguoiNhan || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{receipt.info?.donViNguoiNhan || '-'}</p>
                         </div>
                       </td>
                       <td className="px-5 py-4">
                         <div>
-                          <p className="font-medium text-gray-900">{receipt.hoTenNguoiGui || 'N/A'}</p>
-                          <p className="text-sm text-gray-500">{receipt.donViNguoiGui || '-'}</p>
+                          <p className="font-medium text-gray-900">{receipt.info?.hoTenNguoiGui || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{receipt.info?.donViNguoiGui || '-'}</p>
                         </div>
                       </td>
                       <td className="px-5 py-4">
                         <span className="font-semibold text-gray-900">
-                          {formatNumber(receipt.soTien)} ₫
+                          {formatNumber(receipt.info?.soTien || 0)} ₫
                         </span>
                       </td>
                       <td className="px-5 py-4">
-                        <p className="text-gray-600 truncate max-w-[200px]" title={receipt.lyDoNop}>
-                          {receipt.lyDoNop || '-'}
-                        </p>
+                        {receipt.status === 'signed' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Đã ký
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                            <Clock className="w-3.5 h-3.5" />
+                            Chờ ký
+                          </span>
+                        )}
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2 text-sm text-gray-500">

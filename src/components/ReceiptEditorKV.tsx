@@ -12,7 +12,6 @@ import {
   FileText,
   DollarSign,
   Calendar,
-  MapPin,
   Loader2
 } from 'lucide-react';
 import SignatureCanvas from 'react-signature-canvas';
@@ -244,24 +243,24 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black p-4 md:p-6">
+    <div className="min-h-screen bg-gradient-glass p-4 md:p-6">
       {/* Header */}
       <div className="max-w-3xl mx-auto mb-6">
-        <div className="glass-dark rounded-xl p-4 flex justify-between items-center">
+        <div className="glass-card rounded-2xl p-4 flex justify-between items-center">
           <button
             onClick={onCancel}
-            className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+            className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
             <span>Quay lại</span>
           </button>
-          <h1 className="text-lg font-light text-white">
-            {isEditing ? `Chỉnh sửa: ${receipt.id}` : 'Tạo biên lai mới'}
+          <h1 className="text-lg font-semibold text-gray-900">
+            {isEditing ? `Chỉnh sửa: ${receipt.id}` : 'Tạo biên nhận mới'}
           </h1>
           <div className="flex gap-2">
             <button
               onClick={() => setShowEmailPanel(true)}
-              className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"
+              className="p-2.5 hover:bg-gray-100 rounded-xl transition-colors text-gray-500 hover:text-gray-900"
               title="Gửi email mời ký"
             >
               <Mail className="w-5 h-5" />
@@ -272,35 +271,35 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
       {/* Email Panel */}
       {showEmailPanel && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-dark rounded-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="glass-card rounded-2xl p-6 w-full max-w-md shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium text-white flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <Mail className="w-5 h-5" />
                 Gửi email mời ký
               </h2>
               <button
                 onClick={() => setShowEmailPanel(false)}
-                className="p-1 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"
+                className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-900"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Email khách hàng</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email khách hàng</label>
                 <input
                   type="email"
                   value={customerEmail}
                   onChange={(e) => setCustomerEmail(e.target.value)}
                   placeholder="customer@example.com"
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30"
+                  className="w-full glass-input rounded-xl px-4 py-2.5"
                 />
               </div>
               <button
                 onClick={handleSendEmail}
                 disabled={sendingEmail}
-                className="w-full bg-blue-500 hover:bg-blue-600 disabled:bg-blue-500/50 text-white py-2 rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full glass-button py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2"
               >
                 {sendingEmail ? (
                   <>
@@ -321,32 +320,32 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
       {/* Form */}
       <div className="max-w-3xl mx-auto">
-        <div className="glass-dark rounded-xl p-6 space-y-6">
+        <div className="glass-card rounded-2xl p-6 space-y-6">
           {/* Người nhận */}
           <div className="space-y-4">
-            <h3 className="text-white font-medium flex items-center gap-2 border-b border-white/10 pb-2">
+            <h3 className="text-gray-900 font-semibold flex items-center gap-2 border-b border-gray-200 pb-2">
               <User className="w-4 h-4" />
               Bên nhận tiền
             </h3>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Họ tên người nhận</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Họ tên người nhận</label>
                 <input
                   type="text"
                   name="hoTenNguoiNhan"
                   value={formData.hoTenNguoiNhan}
                   onChange={handleChange}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30"
+                  className="w-full glass-input rounded-xl px-4 py-2.5"
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Đơn vị</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Đơn vị</label>
                 <input
                   type="text"
                   name="donViNguoiNhan"
                   value={formData.donViNguoiNhan}
                   onChange={handleChange}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30"
+                  className="w-full glass-input rounded-xl px-4 py-2.5"
                 />
               </div>
             </div>
@@ -354,29 +353,29 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
           {/* Người gửi */}
           <div className="space-y-4">
-            <h3 className="text-white font-medium flex items-center gap-2 border-b border-white/10 pb-2">
+            <h3 className="text-gray-900 font-semibold flex items-center gap-2 border-b border-gray-200 pb-2">
               <Building className="w-4 h-4" />
               Bên gửi tiền (Khách hàng ký)
             </h3>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Họ tên người gửi</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Họ tên người gửi</label>
                 <input
                   type="text"
                   name="hoTenNguoiGui"
                   value={formData.hoTenNguoiGui}
                   onChange={handleChange}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30"
+                  className="w-full glass-input rounded-xl px-4 py-2.5"
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Đơn vị</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Đơn vị</label>
                 <input
                   type="text"
                   name="donViNguoiGui"
                   value={formData.donViNguoiGui}
                   onChange={handleChange}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30"
+                  className="w-full glass-input rounded-xl px-4 py-2.5"
                 />
               </div>
             </div>
@@ -384,39 +383,39 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
           {/* Thông tin giao dịch */}
           <div className="space-y-4">
-            <h3 className="text-white font-medium flex items-center gap-2 border-b border-white/10 pb-2">
+            <h3 className="text-gray-900 font-semibold flex items-center gap-2 border-b border-gray-200 pb-2">
               <DollarSign className="w-4 h-4" />
               Thông tin giao dịch
             </h3>
             <div>
-              <label className="block text-sm text-gray-400 mb-1">Lý do nộp tiền</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Lý do nộp tiền</label>
               <textarea
                 name="lyDoNop"
                 value={formData.lyDoNop}
                 onChange={handleChange}
                 rows={2}
-                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30 resize-none"
+                className="w-full glass-input rounded-xl px-4 py-2.5 resize-none"
               />
             </div>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Số tiền (VNĐ)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Số tiền (VNĐ)</label>
                 <input
                   type="text"
                   name="soTien"
                   value={formatCurrency(formData.soTien)}
                   onChange={handleChange}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-amber-400 font-medium placeholder:text-gray-500 focus:outline-none focus:border-white/30"
+                  className="w-full glass-input rounded-xl px-4 py-2.5 text-orange-600 font-semibold"
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Bằng chữ</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bằng chữ</label>
                 <input
                   type="text"
                   name="bangChu"
                   value={formData.bangChu}
                   readOnly
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-gray-300 italic"
+                  className="w-full glass-input rounded-xl px-4 py-2.5 text-gray-500 italic bg-gray-50"
                 />
               </div>
             </div>
@@ -424,29 +423,29 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
           {/* Địa điểm & Ngày tháng */}
           <div className="space-y-4">
-            <h3 className="text-white font-medium flex items-center gap-2 border-b border-white/10 pb-2">
+            <h3 className="text-gray-900 font-semibold flex items-center gap-2 border-b border-gray-200 pb-2">
               <Calendar className="w-4 h-4" />
               Thời gian & Địa điểm
             </h3>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Ngày tháng</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ngày tháng</label>
                 <input
                   type="text"
                   name="ngayThang"
                   value={formData.ngayThang}
                   onChange={handleChange}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30"
+                  className="w-full glass-input rounded-xl px-4 py-2.5"
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Địa điểm</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Địa điểm</label>
                 <input
                   type="text"
                   name="diaDiem"
                   value={formData.diaDiem}
                   onChange={handleChange}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30"
+                  className="w-full glass-input rounded-xl px-4 py-2.5"
                 />
               </div>
             </div>
@@ -454,15 +453,15 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
           {/* Signature */}
           <div className="space-y-4">
-            <h3 className="text-white font-medium flex items-center gap-2 border-b border-white/10 pb-2">
+            <h3 className="text-gray-900 font-semibold flex items-center gap-2 border-b border-gray-200 pb-2">
               <FileText className="w-4 h-4" />
               Chữ ký (Admin ký trước - tùy chọn)
             </h3>
-            <div className="bg-white rounded-lg p-2">
+            <div className="border border-gray-200 rounded-xl p-2 bg-white">
               <SignatureCanvas
                 ref={sigCanvas}
                 canvasProps={{
-                  className: 'w-full h-40 bg-white rounded',
+                  className: 'w-full h-40 bg-white rounded-lg',
                   style: { width: '100%', height: '160px' }
                 }}
                 backgroundColor="white"
@@ -470,24 +469,24 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
             </div>
             <button
               onClick={clearSignature}
-              className="text-sm text-gray-400 hover:text-white transition-colors"
+              className="text-sm text-gray-500 hover:text-gray-900 transition-colors"
             >
               Xóa chữ ký
             </button>
           </div>
 
           {/* Actions */}
-          <div className="flex gap-4 pt-4 border-t border-white/10">
+          <div className="flex gap-4 pt-4 border-t border-gray-200">
             <button
               onClick={onCancel}
-              className="flex-1 py-3 border border-white/20 text-white rounded-lg hover:bg-white/10 transition-colors"
+              className="flex-1 py-3 glass-button-outline rounded-xl font-medium"
             >
               Hủy
             </button>
             <button
               onClick={handleSave}
               disabled={saving}
-              className="flex-1 py-3 bg-white text-black rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              className="flex-1 py-3 glass-button rounded-xl font-medium flex items-center justify-center gap-2 disabled:opacity-50"
             >
               {saving ? (
                 <>
@@ -497,7 +496,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
               ) : (
                 <>
                   <Save className="w-4 h-4" />
-                  {isEditing ? 'Cập nhật' : 'Tạo biên lai'}
+                  {isEditing ? 'Cập nhật' : 'Tạo biên nhận'}
                 </>
               )}
             </button>

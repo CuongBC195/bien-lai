@@ -187,12 +187,12 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-glass flex items-center justify-center p-4">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center">
+          <div className="w-16 h-16 bg-black/90 rounded-2xl flex items-center justify-center">
             <FileText className="w-8 h-8 text-white animate-pulse" />
           </div>
-          <div className="flex items-center gap-2 text-gray-400">
+          <div className="flex items-center gap-2 text-gray-500">
             <Loader2 className="w-5 h-5 animate-spin" />
             <span>Đang tải biên lai...</span>
           </div>
@@ -204,18 +204,18 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
   // Error state
   if (error || !receipt) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center p-4">
-        <div className="glass-dark rounded-xl p-8 max-w-md w-full text-center">
-          <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <AlertCircle className="w-8 h-8 text-red-400" />
+      <div className="min-h-screen bg-gradient-glass flex items-center justify-center p-4">
+        <div className="glass-card rounded-2xl p-8 max-w-md w-full text-center shadow-xl">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-8 h-8 text-red-500" />
           </div>
-          <h2 className="text-xl font-medium text-white mb-2">
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
             Không tìm thấy biên lai
           </h2>
-          <p className="text-gray-400 mb-6">
+          <p className="text-gray-500 mb-6">
             {error || 'Biên lai không tồn tại hoặc đã bị xóa.'}
           </p>
-          <p className="text-gray-500 text-sm">
+          <p className="text-gray-400 text-sm">
             Mã: {receiptId}
           </p>
         </div>
@@ -226,20 +226,20 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
   // Success state after signing
   if (showSuccess) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center p-4">
-        <div className="glass-dark rounded-xl p-8 max-w-md w-full text-center">
-          <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Check className="w-8 h-8 text-green-400" />
+      <div className="min-h-screen bg-gradient-glass flex items-center justify-center p-4">
+        <div className="glass-card rounded-2xl p-8 max-w-md w-full text-center shadow-xl">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Check className="w-8 h-8 text-green-600" />
           </div>
-          <h2 className="text-xl font-medium text-white mb-2">
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">
             Ký xác nhận thành công!
           </h2>
-          <p className="text-gray-400 mb-6">
+          <p className="text-gray-500 mb-6">
             Biên lai đã được gửi đến quản trị viên qua Email và Telegram.
           </p>
           <button
             onClick={handleDownload}
-            className="w-full bg-white text-black py-3 rounded-lg hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+            className="w-full glass-button py-3 rounded-xl flex items-center justify-center gap-2"
           >
             <Download className="w-4 h-4" />
             Tải PDF
@@ -250,21 +250,21 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black p-4 md:p-6">
+    <div className="min-h-screen bg-gradient-glass p-4 md:p-6">
       {/* Header */}
       <div className="max-w-3xl mx-auto mb-6">
-        <div className="glass-dark rounded-xl p-4 flex justify-between items-center">
+        <div className="glass-card rounded-2xl p-4 flex justify-between items-center">
           <div>
-            <h1 className="text-lg font-light text-white flex items-center gap-2">
+            <h1 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
               <FileText className="w-5 h-5" />
               Biên lai: {receipt.id}
             </h1>
-            <p className="text-gray-400 text-sm mt-1">
+            <p className="text-gray-500 text-sm mt-1">
               {isSigned ? 'Đã ký xác nhận' : 'Chờ ký xác nhận'}
             </p>
           </div>
           {isSigned && (
-            <span className="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm flex items-center gap-1">
+            <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm flex items-center gap-1 font-medium">
               <Check className="w-4 h-4" />
               Đã ký
             </span>
@@ -276,7 +276,7 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
       <div className="max-w-3xl mx-auto mb-6">
         <div 
           ref={receiptRef}
-          className="bg-white rounded-xl p-6 md:p-8 shadow-lg"
+          className="bg-white rounded-2xl p-6 md:p-8 shadow-lg border border-gray-100"
           style={{ fontFamily: 'Georgia, serif' }}
         >
           {/* Header */}
@@ -318,7 +318,7 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
               <span>{receipt.info.lyDoNop || 'N/A'}</span>
             </div>
             
-            <div className="bg-amber-50 p-4 rounded-lg my-4">
+            <div className="bg-amber-50 p-4 rounded-lg my-4 border border-amber-100">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600 font-medium">Số tiền:</span>
                 <span className="text-2xl font-bold text-amber-600">
@@ -390,23 +390,23 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
       {/* Actions */}
       {!isSigned && (
         <div className="max-w-3xl mx-auto">
-          <div className="glass-dark rounded-xl p-4">
+          <div className="glass-card rounded-2xl p-4">
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div className="flex items-center gap-2 text-gray-400">
+              <div className="flex items-center gap-2 text-gray-500">
                 <PenTool className="w-4 h-4" />
-                <span className="text-sm">Ký vào ô phía trên, sau đó nhấn Hoàn tất & Gửi</span>
+                <span className="text-sm">Ký vào ô phía trên, sau đó nhấn &quot;Hoàn tất & Gửi&quot;</span>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={clearSignature}
-                  className="px-4 py-2 border border-white/20 text-white rounded-lg hover:bg-white/10 transition-colors"
+                  className="px-4 py-2 glass-button-outline rounded-xl"
                 >
                   Xóa chữ ký
                 </button>
                 <button
                   onClick={handleSign}
                   disabled={signing || sending}
-                  className="px-6 py-2 bg-white text-black rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2 disabled:opacity-50"
+                  className="px-6 py-2 glass-button rounded-xl flex items-center gap-2 disabled:opacity-50"
                 >
                   {signing ? (
                     <>
@@ -433,15 +433,15 @@ export default function ReceiptViewKV({ receiptId, onSignComplete }: ReceiptView
 
       {isSigned && (
         <div className="max-w-3xl mx-auto">
-          <div className="glass-dark rounded-xl p-4">
+          <div className="glass-card rounded-2xl p-4">
             <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <div className="flex items-center gap-2 text-green-400">
+              <div className="flex items-center gap-2 text-green-600">
                 <Check className="w-4 h-4" />
-                <span className="text-sm">Biên lai đã được ký xác nhận</span>
+                <span className="text-sm font-medium">Biên lai đã được ký xác nhận</span>
               </div>
               <button
                 onClick={handleDownload}
-                className="px-6 py-2 bg-white text-black rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2"
+                className="px-6 py-2 glass-button rounded-xl flex items-center gap-2"
               >
                 <Download className="w-4 h-4" />
                 Tải PDF
