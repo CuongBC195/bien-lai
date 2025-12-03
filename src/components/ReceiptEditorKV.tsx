@@ -248,9 +248,13 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         signatureNguoiGui,
       };
 
-      const url = isEditing ? '/api/receipts/update' : '/api/receipts/create';
-      const body = isEditing 
-        ? { id: receipt.id, info: receiptData }
+      // Nếu đã có savedReceiptId (từ Share) hoặc đang edit thì update, không tạo mới
+      const hasExistingId = savedReceiptId || isEditing;
+      const existingId = savedReceiptId || receipt?.id;
+      
+      const url = hasExistingId ? '/api/receipts/update' : '/api/receipts/create';
+      const body = hasExistingId 
+        ? { id: existingId, info: receiptData }
         : { info: receiptData };
 
       const res = await fetch(url, {
@@ -262,16 +266,17 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
       const data = await res.json();
       
       if (data.success) {
-        const newId = data.receipt?.id || receipt?.id;
+        const newId = data.receipt?.id || existingId;
         setSavedReceiptId(newId);
         setSaveStatus('success');
         
-        if (!isEditing) {
+        if (!hasExistingId) {
+          // Chỉ hiện popup khi tạo mới hoàn toàn
           setJustCreated(true);
         } else {
+          showToast('Đã lưu biên lai!', 'success');
           setTimeout(() => {
             setSaveStatus('idle');
-            onSave();
           }, 1500);
         }
       } else {
@@ -345,14 +350,44 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
     }
   };
 
-  // Copy link
+  // Copy link - tạo biên lai nếu chưa có, sau đó copy và quay về Dashboard
   const handleCopyLink = async () => {
-    if (!savedReceiptId) return;
-    const url = `${window.location.origin}/?id=${savedReceiptId}`;
+    let receiptId = savedReceiptId;
+    
+    // Tạo biên lai nếu chưa có
+    if (!receiptId) {
+      try {
+        const currentReceiptData: ReceiptData = {
+          title,
+          fields,
+          ngayThang,
+          diaDiem,
+          signatureNguoiNhan,
+          signatureNguoiGui,
+        };
+        const createRes = await fetch('/api/receipts/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ info: currentReceiptData }),
+        });
+        const createData = await createRes.json();
+        if (!createData.success) {
+          showToast('Không thể tạo biên lai', 'error');
+          return;
+        }
+        receiptId = createData.receipt.id;
+        setSavedReceiptId(receiptId);
+      } catch (error) {
+        console.error('Error creating receipt:', error);
+        showToast('Có lỗi xảy ra', 'error');
+        return;
+      }
+    }
+    
+    const url = `${window.location.origin}/?id=${receiptId}`;
     try {
       await navigator.clipboard.writeText(url);
-      setShowLinkCopied(true);
-      setTimeout(() => setShowLinkCopied(false), 2000);
+      showToast('Đã copy link và lưu biên lai!', 'success');
     } catch {
       const textArea = document.createElement('textarea');
       textArea.value = url;
@@ -360,9 +395,13 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
       textArea.select();
       document.execCommand('copy');
       document.body.removeChild(textArea);
-      setShowLinkCopied(true);
-      setTimeout(() => setShowLinkCopied(false), 2000);
+      showToast('Đã copy link và lưu biên lai!', 'success');
     }
+    
+    // Quay về Dashboard sau 1s
+    setTimeout(() => {
+      onSave();
+    }, 1000);
   };
 
   // Send invitation email
@@ -421,9 +460,13 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
       const data = await res.json();
       if (data.success) {
-        showToast('Đã gửi email mời ký thành công!', 'success');
+        showToast('Đã gửi email và lưu biên lai!', 'success');
         setShowEmailPanel(false);
         setCustomerEmail('');
+        // Quay về Dashboard sau 1s
+        setTimeout(() => {
+          onSave();
+        }, 1000);
       } else {
         showToast(data.error || 'Gửi email thất bại', 'error');
       }

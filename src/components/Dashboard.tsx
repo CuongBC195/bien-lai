@@ -14,7 +14,8 @@ import {
   Receipt as ReceiptIcon,
   Wallet,
   Clock,
-  Loader2
+  Loader2,
+  Eye
 } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import ReceiptEditorKV from './ReceiptEditorKV';
@@ -114,6 +115,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
   const [loading, setLoading] = useState(true);
   
+  // View receipt state
+  const [viewingReceiptId, setViewingReceiptId] = useState<string | null>(null);
+  
   // Toast notification
   const { toasts, showToast, removeToast } = useToast();
   
@@ -161,6 +165,12 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const handleEdit = (receipt: Receipt) => {
     setEditingReceipt(receipt);
     setIsEditorOpen(true);
+  };
+
+  const handleView = (receipt: Receipt) => {
+    // Mở link xem chi tiết trong tab mới
+    const url = `${window.location.origin}/?id=${receipt.id}`;
+    window.open(url, '_blank');
   };
 
   const handleDelete = async (id: string) => {
@@ -437,6 +447,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={() => handleView(receipt)}
+                      className="flex-1 flex items-center justify-center gap-1 p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors text-sm"
+                    >
+                      <Eye className="w-4 h-4" />
+                      Xem
+                    </button>
+                    <button
                       onClick={(e) => handleShareClick(receipt, e)}
                       className="flex-1 flex items-center justify-center gap-1 p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
                     >
@@ -530,6 +547,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                       </td>
                       <td className="px-5 py-4">
                         <div className="flex items-center justify-end gap-1 relative">
+                          <button
+                            onClick={() => handleView(receipt)}
+                            className="p-2.5 rounded-xl transition-all hover:bg-blue-50 text-gray-500 hover:text-blue-600"
+                            title="Xem chi tiết"
+                          >
+                            <Eye className="w-5 h-5" />
+                          </button>
                           <button
                             onClick={(e) => handleShareClick(receipt, e)}
                             className="p-2.5 rounded-xl transition-all hover:bg-gray-100 text-gray-500 hover:text-gray-900"
