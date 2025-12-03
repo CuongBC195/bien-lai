@@ -2,26 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 
 interface ReceiptInfo {
-  hoTenNguoiNhan: string;
-  hoTenNguoiGui: string;
-  donViNguoiNhan: string;
-  donViNguoiGui: string;
-  lyDoNop: string;
-  soTien: number;
-  bangChu: string;
-  ngayThang: string;
-  diaDiem: string;
+  hoTenNguoiNhan?: string;
+  hoTenNguoiGui?: string;
+  donViNguoiNhan?: string;
+  donViNguoiGui?: string;
+  lyDoNop?: string;
+  soTien?: number;
+  bangChu?: string;
+  ngayThang?: string;
+  diaDiem?: string;
 }
 
 interface RequestBody {
   customerEmail: string;
-  customerName: string;
-  receiptInfo: ReceiptInfo;
+  customerName?: string;
+  receiptInfo?: ReceiptInfo;
   signingUrl: string;
 }
 
 // Helper: Format currency
-function formatCurrency(amount: number): string {
+function formatCurrency(amount?: number): string {
+  if (!amount) return 'N/A';
   return new Intl.NumberFormat('vi-VN').format(amount) + ' VNĐ';
 }
 
@@ -45,10 +46,75 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Build email content based on whether we have receiptInfo or not
+    const senderName = receiptInfo?.donViNguoiNhan || 'Biên nhận điện tử';
+    const subjectName = receiptInfo?.hoTenNguoiNhan || customerName || 'Biên nhận';
+    
+    // Simplified email when no receiptInfo
+    const hasReceiptInfo = receiptInfo && (receiptInfo.hoTenNguoiNhan || receiptInfo.soTien);
+    
+    const receiptInfoHtml = hasReceiptInfo ? `
+      <!-- Receipt Info Box -->
+      <div style="background: #fdfcfa; border: 1px solid #e8e4dc; border-left: 3px solid #c9a962; padding: 20px; border-radius: 4px; margin: 24px 0;">
+        <h3 style="margin: 0 0 16px 0; color: #2a2520; font-size: 14px; font-weight: bold; text-transform: uppercase;">
+          Thông tin biên nhận
+        </h3>
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+          ${receiptInfo?.hoTenNguoiNhan ? `
+          <tr>
+            <td style="padding: 8px 0; color: #8a8279; width: 130px;">Người nhận tiền</td>
+            <td style="padding: 8px 0; color: #2a2520; font-weight: bold;">${receiptInfo.hoTenNguoiNhan}</td>
+          </tr>` : ''}
+          ${receiptInfo?.donViNguoiNhan ? `
+          <tr>
+            <td style="padding: 8px 0; color: #8a8279;">Đơn vị</td>
+            <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.donViNguoiNhan}</td>
+          </tr>` : ''}
+          ${receiptInfo?.hoTenNguoiGui ? `
+          <tr>
+            <td style="padding: 8px 0; color: #8a8279;">Người gửi tiền</td>
+            <td style="padding: 8px 0; color: #2a2520; font-weight: bold;">${receiptInfo.hoTenNguoiGui}</td>
+          </tr>` : ''}
+          ${receiptInfo?.donViNguoiGui ? `
+          <tr>
+            <td style="padding: 8px 0; color: #8a8279;">Đơn vị</td>
+            <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.donViNguoiGui}</td>
+          </tr>` : ''}
+          ${receiptInfo?.lyDoNop ? `
+          <tr>
+            <td style="padding: 8px 0; color: #8a8279;">Lý do</td>
+            <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.lyDoNop}</td>
+          </tr>` : ''}
+          ${receiptInfo?.soTien ? `
+          <tr style="background: #faf6eb;">
+            <td style="padding: 12px 8px; color: #2a2520; font-weight: bold;">Số tiền</td>
+            <td style="padding: 12px 8px; font-weight: bold; color: #b8963e; font-size: 18px;">
+              ${formatCurrency(receiptInfo.soTien)}
+            </td>
+          </tr>` : ''}
+          ${receiptInfo?.bangChu ? `
+          <tr>
+            <td style="padding: 8px 0; color: #8a8279;">Bằng chữ</td>
+            <td style="padding: 8px 0; color: #5c574f; font-style: italic;">${receiptInfo.bangChu}</td>
+          </tr>` : ''}
+          ${receiptInfo?.ngayThang ? `
+          <tr>
+            <td style="padding: 8px 0; color: #8a8279;">Ngày</td>
+            <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.ngayThang}</td>
+          </tr>` : ''}
+          ${receiptInfo?.diaDiem ? `
+          <tr>
+            <td style="padding: 8px 0; color: #8a8279;">Địa điểm</td>
+            <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.diaDiem}</td>
+          </tr>` : ''}
+        </table>
+      </div>
+    ` : '';
+
     const mailOptions = {
-      from: `"${receiptInfo.donViNguoiNhan || 'Biên nhận điện tử'}" <${process.env.EMAIL_USER}>`,
+      from: `"${senderName}" <${process.env.EMAIL_USER}>`,
       to: customerEmail,
-      subject: `Yêu cầu ký xác nhận biên nhận - ${receiptInfo.hoTenNguoiNhan || 'Biên nhận'}`,
+      subject: `Yêu cầu ký xác nhận biên nhận - ${subjectName}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -80,52 +146,7 @@ export async function POST(request: NextRequest) {
                 Chúng tôi xin gửi đến Quý khách thông tin biên nhận tiền và kính mời Quý khách ký xác nhận.
               </p>
               
-              <!-- Receipt Info Box -->
-              <div style="background: #fdfcfa; border: 1px solid #e8e4dc; border-left: 3px solid #c9a962; padding: 20px; border-radius: 4px; margin: 24px 0;">
-                <h3 style="margin: 0 0 16px 0; color: #2a2520; font-size: 14px; font-weight: bold; text-transform: uppercase;">
-                  Thông tin biên nhận
-                </h3>
-                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-                  <tr>
-                    <td style="padding: 8px 0; color: #8a8279; width: 130px;">Người nhận tiền</td>
-                    <td style="padding: 8px 0; color: #2a2520; font-weight: bold;">${receiptInfo.hoTenNguoiNhan || 'N/A'}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #8a8279;">Đơn vị</td>
-                    <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.donViNguoiNhan || 'N/A'}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #8a8279;">Người gửi tiền</td>
-                    <td style="padding: 8px 0; color: #2a2520; font-weight: bold;">${receiptInfo.hoTenNguoiGui || 'N/A'}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #8a8279;">Đơn vị</td>
-                    <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.donViNguoiGui || 'N/A'}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #8a8279;">Lý do</td>
-                    <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.lyDoNop || 'N/A'}</td>
-                  </tr>
-                  <tr style="background: #faf6eb;">
-                    <td style="padding: 12px 8px; color: #2a2520; font-weight: bold;">Số tiền</td>
-                    <td style="padding: 12px 8px; font-weight: bold; color: #b8963e; font-size: 18px;">
-                      ${formatCurrency(receiptInfo.soTien)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #8a8279;">Bằng chữ</td>
-                    <td style="padding: 8px 0; color: #5c574f; font-style: italic;">${receiptInfo.bangChu || 'N/A'}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #8a8279;">Ngày</td>
-                    <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.ngayThang}</td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 8px 0; color: #8a8279;">Địa điểm</td>
-                    <td style="padding: 8px 0; color: #2a2520;">${receiptInfo.diaDiem}</td>
-                  </tr>
-                </table>
-              </div>
+              ${receiptInfoHtml}
               
               <!-- CTA Section -->
               <div style="text-align: center; margin: 30px 0;">
@@ -154,7 +175,7 @@ export async function POST(request: NextRequest) {
                 <a href="mailto:${process.env.ADMIN_EMAIL}" style="color: #8a8279;">${process.env.ADMIN_EMAIL}</a>
               </p>
               <p style="color: #c4c0b8; font-size: 11px; margin: 12px 0 0 0;">
-                ${new Date().getFullYear()} ${receiptInfo.donViNguoiNhan || 'E-Receipt System'}
+                ${new Date().getFullYear()} ${senderName}
               </p>
             </div>
           </div>

@@ -22,7 +22,25 @@ import {
   cn 
 } from '@/lib/utils';
 
-interface ReceiptInfo {
+// New interfaces to match ReceiptEditorKV
+interface DynamicField {
+  id: string;
+  label: string;
+  value: string;
+  type: 'text' | 'textarea' | 'money';
+}
+
+interface ReceiptData {
+  title: string;
+  fields: DynamicField[];
+  ngayThang: string;
+  diaDiem: string;
+  signatureNguoiNhan?: string;
+  signatureNguoiGui?: string;
+}
+
+// Legacy format for backward compatibility
+interface LegacyReceiptInfo {
   hoTenNguoiNhan: string;
   hoTenNguoiGui: string;
   donViNguoiNhan: string;
@@ -34,19 +52,13 @@ interface ReceiptInfo {
   diaDiem: string;
 }
 
-interface SignaturePoint {
-  x: number;
-  y: number;
-  time: number;
-  color?: string;
-}
-
 interface Receipt {
   id: string;
-  info: ReceiptInfo;
-  signaturePoints: SignaturePoint[][] | null;
-  signatureNguoiNhan?: string; // Chữ ký admin
-  signatureNguoiGui?: string; // Chữ ký khách
+  // Support both old and new format
+  info?: LegacyReceiptInfo;
+  data?: ReceiptData;
+  signatureNguoiNhan?: string;
+  signatureNguoiGui?: string;
   status: 'pending' | 'signed';
   createdAt: number;
   signedAt?: number;
@@ -57,6 +69,7 @@ interface ReceiptViewKVProps {
 }
 
 type ActionStatus = 'idle' | 'loading' | 'success' | 'error';
+type SignatureTarget = 'nguoiNhan' | 'nguoiGui' | null;
 
 export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
   const receiptRef = useRef<HTMLDivElement>(null);
@@ -66,10 +79,17 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Signature state
+  // Converted data for display
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+  
+  // Signature state - which one the customer needs to sign
+  const [missingSignature, setMissingSignature] = useState<SignatureTarget>(null);
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
-  const [signatureNguoiGui, setSignatureNguoiGui] = useState<string>('');
+  const [signatureTarget, setSignatureTarget] = useState<SignatureTarget>(null);
+  
+  // Local signature state
   const [signatureNguoiNhan, setSignatureNguoiNhan] = useState<string>('');
+  const [signatureNguoiGui, setSignatureNguoiGui] = useState<string>('');
   
   // Action states
   const [exportStatus, setExportStatus] = useState<ActionStatus>('idle');
@@ -78,6 +98,39 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
 
   // Toast notification
   const { toasts, showToast, removeToast } = useToast();
+
+  // Convert legacy format to new format
+  const convertLegacyToNew = (info: LegacyReceiptInfo): ReceiptData => {
+    return {
+      title: 'GIẤY BIÊN NHẬN TIỀN',
+      fields: [
+        { id: 'hoTenNguoiNhan', label: 'Họ và tên người nhận', value: info.hoTenNguoiNhan || '', type: 'text' },
+        { id: 'donViNguoiNhan', label: 'Đơn vị người nhận', value: info.donViNguoiNhan || '', type: 'text' },
+        { id: 'hoTenNguoiGui', label: 'Họ và tên người gửi', value: info.hoTenNguoiGui || '', type: 'text' },
+        { id: 'donViNguoiGui', label: 'Đơn vị người gửi', value: info.donViNguoiGui || '', type: 'text' },
+        { id: 'lyDoNop', label: 'Lý do nộp', value: info.lyDoNop || '', type: 'text' },
+        { id: 'soTien', label: 'Số tiền', value: info.soTien?.toString() || '0', type: 'money' },
+      ],
+      ngayThang: info.ngayThang || formatVietnameseDate(new Date()),
+      diaDiem: info.diaDiem || 'TP. Cần Thơ',
+    };
+  };
+
+  // Get field value by id
+  const getFieldValue = (fieldId: string): string => {
+    if (!receiptData) return '';
+    const field = receiptData.fields.find(f => f.id === fieldId);
+    return field?.value || '';
+  };
+
+  // Get money amount
+  const getSoTien = (): number => {
+    const soTienField = receiptData?.fields.find(f => f.type === 'money');
+    if (soTienField) {
+      return parseInt(soTienField.value.replace(/\D/g, '')) || 0;
+    }
+    return 0;
+  };
 
   // Fetch receipt on mount
   useEffect(() => {
@@ -88,22 +141,45 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
         const data = await res.json();
         
         if (data.success && data.receipt) {
-          setReceipt(data.receipt);
-          // Load admin signature if exists
-          if (data.receipt.signatureNguoiNhan) {
-            setSignatureNguoiNhan(data.receipt.signatureNguoiNhan);
-          }
-          // If already signed, show success
-          if (data.receipt.status === 'signed') {
-            // Load customer signature if exists
-            if (data.receipt.signatureNguoiGui) {
-              setSignatureNguoiGui(data.receipt.signatureNguoiGui);
-            }
-            setShowSuccess(true);
+          const r = data.receipt as Receipt;
+          setReceipt(r);
+          
+          // Convert to ReceiptData format
+          let convertedData: ReceiptData;
+          if (r.data) {
+            // New format
+            convertedData = r.data;
+          } else if (r.info) {
+            // Legacy format
+            convertedData = convertLegacyToNew(r.info);
           } else {
-            // Not signed yet - make sure signature state is empty
-            setSignatureNguoiGui('');
-            setShowSuccess(false);
+            throw new Error('Invalid receipt format');
+          }
+          setReceiptData(convertedData);
+          
+          // Load existing signatures
+          const sigNhan = r.signatureNguoiNhan || r.data?.signatureNguoiNhan || '';
+          const sigGui = r.signatureNguoiGui || r.data?.signatureNguoiGui || '';
+          setSignatureNguoiNhan(sigNhan);
+          setSignatureNguoiGui(sigGui);
+          
+          // Determine which signature is missing
+          const hasNhan = sigNhan && sigNhan.startsWith('data:');
+          const hasGui = sigGui && sigGui.startsWith('data:');
+          
+          if (r.status === 'signed' || (hasNhan && hasGui)) {
+            // Fully signed
+            setShowSuccess(true);
+            setMissingSignature(null);
+          } else if (!hasNhan && !hasGui) {
+            // Both missing - default to nguoiGui (sender)
+            setMissingSignature('nguoiGui');
+          } else if (!hasNhan) {
+            // Missing nguoiNhan
+            setMissingSignature('nguoiNhan');
+          } else {
+            // Missing nguoiGui
+            setMissingSignature('nguoiGui');
           }
         } else {
           setError(data.error || 'Không tìm thấy biên lai');
@@ -118,6 +194,51 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
 
     fetchReceipt();
   }, [receiptId]);
+
+  // Open signature modal for specific target
+  const openSignatureModal = (target: SignatureTarget) => {
+    setSignatureTarget(target);
+    setIsSignatureModalOpen(true);
+  };
+
+  // Apply signature
+  const handleApplySignature = (sig: string) => {
+    if (signatureTarget === 'nguoiNhan') {
+      setSignatureNguoiNhan(sig);
+    } else if (signatureTarget === 'nguoiGui') {
+      setSignatureNguoiGui(sig);
+    }
+    setIsSignatureModalOpen(false);
+  };
+
+  // Clear signature
+  const clearSignature = (target: SignatureTarget) => {
+    if (target === 'nguoiNhan') {
+      setSignatureNguoiNhan('');
+    } else if (target === 'nguoiGui') {
+      setSignatureNguoiGui('');
+    }
+  };
+
+  // Check if can send
+  const canSend = (): boolean => {
+    if (missingSignature === 'nguoiNhan') {
+      return signatureNguoiNhan.startsWith('data:');
+    } else if (missingSignature === 'nguoiGui') {
+      return signatureNguoiGui.startsWith('data:');
+    }
+    return false;
+  };
+
+  // Get missing signature label
+  const getMissingLabel = (): string => {
+    if (missingSignature === 'nguoiNhan') {
+      return 'Người nhận tiền';
+    } else if (missingSignature === 'nguoiGui') {
+      return 'Người gửi tiền';
+    }
+    return '';
+  };
 
   // Export PDF
   const exportPDF = useCallback(async (): Promise<Blob | null> => {
@@ -182,8 +303,8 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
 
   // Sign and send
   const handleSignAndSend = async () => {
-    if (!signatureNguoiGui) {
-      showToast('Vui lòng ký tên trước khi gửi!', 'error');
+    if (!canSend()) {
+      showToast(`Vui lòng ký xác nhận tại ô "${getMissingLabel()}" trước khi gửi!`, 'error');
       return;
     }
     if (!receipt) return;
@@ -191,14 +312,22 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
     setSendStatus('loading');
 
     try {
+      // Prepare signature data
+      const signatureData: { id: string; signatureNguoiNhan?: string; signatureNguoiGui?: string } = {
+        id: receipt.id,
+      };
+      
+      if (missingSignature === 'nguoiNhan') {
+        signatureData.signatureNguoiNhan = signatureNguoiNhan;
+      } else if (missingSignature === 'nguoiGui') {
+        signatureData.signatureNguoiGui = signatureNguoiGui;
+      }
+
       // Update signature in database
       const signRes = await fetch('/api/receipts/sign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: receipt.id,
-          signatureNguoiGui: signatureNguoiGui,
-        }),
+        body: JSON.stringify(signatureData),
       });
 
       const signData = await signRes.json();
@@ -219,13 +348,26 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
         });
         const imageBase64 = canvas.toDataURL('image/jpeg', 0.8);
 
+        // Build receipt data for notification
+        const receiptInfo = {
+          hoTenNguoiNhan: getFieldValue('hoTenNguoiNhan'),
+          hoTenNguoiGui: getFieldValue('hoTenNguoiGui'),
+          donViNguoiNhan: getFieldValue('donViNguoiNhan'),
+          donViNguoiGui: getFieldValue('donViNguoiGui'),
+          lyDoNop: getFieldValue('lyDoNop'),
+          soTien: getSoTien(),
+          bangChu: numberToVietnamese(getSoTien()),
+          ngayThang: receiptData?.ngayThang || '',
+          diaDiem: receiptData?.diaDiem || '',
+        };
+
         // Send notification (Email + Telegram)
         await fetch('/api/send-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             imageBase64,
-            receiptData: receipt.info,
+            receiptData: receiptInfo,
           }),
         });
       }
@@ -257,7 +399,7 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
   }
 
   // Error state
-  if (error || !receipt) {
+  if (error || !receipt || !receiptData) {
     return (
       <div className="min-h-screen bg-gradient-glass flex items-center justify-center p-4">
         <div className="glass-card rounded-2xl p-8 max-w-md w-full text-center shadow-xl">
@@ -278,11 +420,65 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
     );
   }
 
-  // Main view - Customer signing (always show, with success message if needed)
+  // Render signature box
+  const renderSignatureBox = (
+    target: SignatureTarget, 
+    label: string, 
+    signature: string, 
+    nameValue: string
+  ) => {
+    const isMissing = missingSignature === target;
+    const hasSig = signature && signature.startsWith('data:');
+
+    return (
+      <div>
+        <p className="font-bold mb-2">{label}</p>
+        <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
+        
+        <div className="min-h-[100px] flex flex-col items-center justify-center">
+          {hasSig ? (
+            <div className="relative group">
+              <img 
+                src={signature} 
+                alt={`Chữ ký ${label.toLowerCase()}`} 
+                className="h-16 w-auto object-contain"
+                style={{ imageRendering: 'auto', minWidth: '80px' }}
+              />
+              {isMissing && !showSuccess && (
+                <button
+                  onClick={() => clearSignature(target)}
+                  className="absolute -top-2 -right-2 p-1 bg-black text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity print:hidden"
+                  title="Xóa chữ ký"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          ) : isMissing && !showSuccess ? (
+            <button
+              onClick={() => openSignatureModal(target)}
+              className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-blue-400 rounded-xl text-blue-600 hover:border-blue-600 hover:bg-blue-50 transition-colors print:hidden"
+            >
+              <PenLine className="w-4 h-4" />
+              Ký xác nhận
+            </button>
+          ) : (
+            <span className="text-gray-400 italic">Chưa ký</span>
+          )}
+        </div>
+
+        <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
+          {nameValue || '...........................'}
+        </p>
+      </div>
+    );
+  };
+
+  // Main view
   return (
     <div className="min-h-screen bg-gradient-glass py-8 px-4">
       <div className="max-w-4xl mx-auto">
-        {/* Success Message - Show if already signed */}
+        {/* Success Message */}
         {showSuccess && (
           <div className="glass-card rounded-2xl p-6 mb-6 text-center border-2 border-green-400">
             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -308,9 +504,9 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
               <p className="text-sm text-gray-500">
                 {showSuccess 
                   ? 'Đã hoàn tất - Có thể tải PDF bên dưới'
-                  : signatureNguoiGui 
-                    ? 'Đã ký - Nhấn "Hoàn tất & Gửi" bên dưới để xác nhận' 
-                    : 'Vui lòng ký xác nhận tại ô "Người gửi tiền" bên dưới'}
+                  : canSend()
+                    ? `Đã ký - Nhấn "Hoàn tất & Gửi" để xác nhận` 
+                    : `Vui lòng ký xác nhận tại ô "${getMissingLabel()}" bên dưới`}
               </p>
             </div>
           </div>
@@ -341,59 +537,32 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
               -----------------------
             </div>
             <h1 className="text-2xl font-bold mt-6 tracking-wider">
-              GIẤY BIÊN NHẬN TIỀN
+              {receiptData.title || 'GIẤY BIÊN NHẬN TIỀN'}
             </h1>
           </header>
 
-          {/* Body - Read-only */}
+          {/* Body - Dynamic Fields */}
           <div className="space-y-5 text-base leading-relaxed">
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Họ và tên người nhận:</span>
-              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
-                {receipt.info.hoTenNguoiNhan || '...'}
-              </span>
-            </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Đơn vị người nhận:</span>
-              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
-                {receipt.info.donViNguoiNhan || '...'}
-              </span>
-            </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Họ và tên người gửi:</span>
-              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
-                {receipt.info.hoTenNguoiGui || '...'}
-              </span>
-            </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Đơn vị người gửi:</span>
-              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
-                {receipt.info.donViNguoiGui || '...'}
-              </span>
-            </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Lý do nộp:</span>
-              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1">
-                {receipt.info.lyDoNop || '...'}
-              </span>
-            </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Số tiền:</span>
-              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 font-semibold">
-                {formatNumber(receipt.info.soTien)}
-              </span>
-              <span className="whitespace-nowrap">VNĐ</span>
-            </div>
-
+            {receiptData.fields.map((field) => (
+              <div key={field.id} className="flex items-baseline gap-2">
+                <span className="whitespace-nowrap">{field.label}:</span>
+                <span className={cn(
+                  "flex-1 border-b border-dotted border-gray-400 px-2 py-1",
+                  field.type === 'money' && "font-semibold"
+                )}>
+                  {field.type === 'money' 
+                    ? formatNumber(parseInt(field.value.replace(/\D/g, '')) || 0)
+                    : (field.value || '...')}
+                </span>
+                {field.type === 'money' && <span className="whitespace-nowrap">VNĐ</span>}
+              </div>
+            ))}
+            
+            {/* Bằng chữ - auto calculate from soTien */}
             <div className="flex items-baseline gap-2">
               <span className="whitespace-nowrap">Bằng chữ:</span>
               <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 italic text-gray-700">
-                {receipt.info.bangChu || numberToVietnamese(receipt.info.soTien)}
+                {numberToVietnamese(getSoTien())}
               </span>
             </div>
           </div>
@@ -401,84 +570,37 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
           {/* Footer with Signatures */}
           <footer className="mt-16">
             <div className="text-right italic mb-10">
-              <span>{receipt.info.diaDiem || 'TP. Cần Thơ'}, </span>
-              <span>{receipt.info.ngayThang || formatVietnameseDate(new Date())}</span>
+              <span>{receiptData.diaDiem || 'TP. Cần Thơ'}, </span>
+              <span>{receiptData.ngayThang || formatVietnameseDate(new Date())}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-8 text-center">
-              {/* Người gửi tiền - Khách ký */}
-              <div>
-                <p className="font-bold mb-2">Người gửi tiền</p>
-                <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
-                
-                <div className="min-h-[100px] flex flex-col items-center justify-center">
-                  {signatureNguoiGui && signatureNguoiGui.startsWith('data:') ? (
-                    <div className="relative group">
-                      <img 
-                        src={signatureNguoiGui} 
-                        alt="Chữ ký người gửi" 
-                        className="h-16 w-auto object-contain"
-                        style={{ imageRendering: 'auto', minWidth: '80px' }}
-                      />
-                      {!showSuccess && (
-                        <button
-                          onClick={() => setSignatureNguoiGui('')}
-                          className="absolute -top-2 -right-2 p-1 bg-black text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity print:hidden"
-                          title="Xóa chữ ký"
-                        >
-                          <RotateCcw className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setIsSignatureModalOpen(true)}
-                      className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-gray-500 hover:text-gray-700 transition-colors print:hidden"
-                    >
-                      <PenLine className="w-4 h-4" />
-                      Ký xác nhận
-                    </button>
-                  )}
-                </div>
-
-                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
-                  {receipt.info.hoTenNguoiGui || '...........................'}
-                </p>
-              </div>
+              {/* Người gửi tiền */}
+              {renderSignatureBox(
+                'nguoiGui',
+                'Người gửi tiền',
+                signatureNguoiGui,
+                getFieldValue('hoTenNguoiGui')
+              )}
 
               {/* Người nhận tiền */}
-              <div>
-                <p className="font-bold mb-2">Người nhận tiền</p>
-                <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
-                
-                <div className="min-h-[100px] flex flex-col items-center justify-center">
-                  {signatureNguoiNhan ? (
-                    <img 
-                      src={signatureNguoiNhan} 
-                      alt="Chữ ký người nhận" 
-                      className="h-16 w-auto object-contain"
-                      style={{ imageRendering: 'auto', minWidth: '80px' }}
-                    />
-                  ) : (
-                    <span className="text-gray-400 italic">Chưa ký</span>
-                  )}
-                </div>
-
-                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
-                  {receipt.info.hoTenNguoiNhan || '...........................'}
-                </p>
-              </div>
+              {renderSignatureBox(
+                'nguoiNhan',
+                'Người nhận tiền',
+                signatureNguoiNhan,
+                getFieldValue('hoTenNguoiNhan')
+              )}
             </div>
           </footer>
         </div>
 
-        {/* Action Buttons Below Receipt */}
+        {/* Action Buttons */}
         <div className="mt-6 bg-white rounded-2xl p-6 shadow-lg flex flex-wrap justify-center gap-4 print:hidden">
-          {/* Send Button - Show until success */}
+          {/* Send Button */}
           {!showSuccess && (
             <button
               onClick={handleSignAndSend}
-              disabled={sendStatus === 'loading' || !signatureNguoiGui || !signatureNguoiGui.startsWith('data:')}
+              disabled={sendStatus === 'loading' || !canSend()}
               className={cn(
                 'inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all',
                 sendStatus === 'success' 
@@ -486,7 +608,7 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
                   : sendStatus === 'error'
                   ? 'bg-red-600 text-white'
                   : 'bg-black text-white hover:bg-gray-800',
-                (sendStatus === 'loading' || !signatureNguoiGui || !signatureNguoiGui.startsWith('data:')) && 'opacity-30 cursor-not-allowed'
+                (sendStatus === 'loading' || !canSend()) && 'opacity-30 cursor-not-allowed'
               )}
             >
               {sendStatus === 'loading' ? (
@@ -513,7 +635,7 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
             </button>
           )}
 
-          {/* Export PDF Button - Only show after send success or showSuccess */}
+          {/* Export PDF Button */}
           {(showSuccess || sendStatus === 'success') && (
             <button
               onClick={handleExportPDF}
@@ -550,7 +672,7 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
       <SignatureModal
         isOpen={isSignatureModalOpen}
         onClose={() => setIsSignatureModalOpen(false)}
-        onApply={(sig) => setSignatureNguoiGui(sig)}
+        onApply={handleApplySignature}
       />
 
       {/* Toast Container */}

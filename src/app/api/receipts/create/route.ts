@@ -1,25 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createReceipt, ReceiptInfo, SignaturePoint } from '@/lib/kv';
+import { createReceipt, ReceiptInfo, ReceiptData, SignaturePoint } from '@/lib/kv';
 
 interface CreateReceiptRequest {
-  info: ReceiptInfo;
+  // Support both old and new format
+  info?: ReceiptInfo;      // Legacy format
+  data?: ReceiptData;      // New format
   signaturePoints?: SignaturePoint[][] | null;
-  signatureNguoiNhan?: string; // Chữ ký admin
+  signatureNguoiNhan?: string; // Chữ ký người nhận (admin)
+  signatureNguoiGui?: string;  // Chữ ký người gửi (admin)
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: CreateReceiptRequest = await request.json();
-    const { info, signaturePoints, signatureNguoiNhan } = body;
+    const { info, data, signaturePoints, signatureNguoiNhan, signatureNguoiGui } = body;
 
-    if (!info) {
+    // Need either info (legacy) or data (new format)
+    if (!info && !data) {
       return NextResponse.json(
-        { success: false, error: 'Receipt info is required' },
+        { success: false, error: 'Receipt info or data is required' },
         { status: 400 }
       );
     }
 
-    const receipt = await createReceipt(info, signaturePoints, signatureNguoiNhan);
+    // Use new format if available, otherwise use legacy
+    const receiptData = data || info;
+    const receipt = await createReceipt(
+      receiptData!, 
+      signaturePoints, 
+      signatureNguoiNhan || data?.signatureNguoiNhan,
+      signatureNguoiGui || data?.signatureNguoiGui
+    );
 
     // Generate signing URL
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 

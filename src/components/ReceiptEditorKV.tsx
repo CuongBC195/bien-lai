@@ -15,7 +15,11 @@ import {
   Copy,
   Check,
   Link,
-  Send
+  Send,
+  Plus,
+  Trash2,
+  GripVertical,
+  Edit3
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -29,7 +33,25 @@ import {
   cn 
 } from '@/lib/utils';
 
-interface ReceiptInfo {
+// Dynamic field interface
+interface DynamicField {
+  id: string;
+  label: string;
+  value: string;
+  type: 'text' | 'textarea' | 'money';
+}
+
+interface ReceiptData {
+  title: string;
+  fields: DynamicField[];
+  ngayThang: string;
+  diaDiem: string;
+  signatureNguoiNhan?: string;
+  signatureNguoiGui?: string;
+}
+
+// Legacy format for backward compatibility
+interface LegacyReceiptInfo {
   hoTenNguoiNhan: string;
   hoTenNguoiGui: string;
   donViNguoiNhan: string;
@@ -41,18 +63,13 @@ interface ReceiptInfo {
   diaDiem: string;
 }
 
-interface SignaturePoint {
-  x: number;
-  y: number;
-  time: number;
-  color?: string;
-}
-
 interface Receipt {
   id: string;
-  info: ReceiptInfo;
-  signaturePoints: SignaturePoint[][] | null;
+  // Support both old and new format
+  info?: LegacyReceiptInfo;  // Legacy format
+  data?: ReceiptData;        // New format
   signatureNguoiNhan?: string;
+  signatureNguoiGui?: string;
   status: 'pending' | 'signed';
   createdAt: number;
   signedAt?: number;
@@ -66,26 +83,80 @@ interface ReceiptEditorKVProps {
 
 type ActionStatus = 'idle' | 'loading' | 'success' | 'error';
 
+// Default fields
+const DEFAULT_FIELDS: DynamicField[] = [
+  { id: 'hoTenNguoiNhan', label: 'Họ và tên người nhận', value: '', type: 'text' },
+  { id: 'donViNguoiNhan', label: 'Đơn vị người nhận', value: '', type: 'text' },
+  { id: 'hoTenNguoiGui', label: 'Họ và tên người gửi', value: '', type: 'text' },
+  { id: 'donViNguoiGui', label: 'Đơn vị người gửi', value: '', type: 'text' },
+  { id: 'lyDoNop', label: 'Lý do nộp', value: '', type: 'textarea' },
+  { id: 'soTien', label: 'Số tiền', value: '', type: 'money' },
+];
+
+// Convert legacy format to new format
+function convertLegacyToNew(info: LegacyReceiptInfo): ReceiptData {
+  return {
+    title: 'GIẤY BIÊN NHẬN TIỀN',
+    fields: [
+      { id: 'hoTenNguoiNhan', label: 'Họ và tên người nhận', value: info.hoTenNguoiNhan || '', type: 'text' },
+      { id: 'donViNguoiNhan', label: 'Đơn vị người nhận', value: info.donViNguoiNhan || '', type: 'text' },
+      { id: 'hoTenNguoiGui', label: 'Họ và tên người gửi', value: info.hoTenNguoiGui || '', type: 'text' },
+      { id: 'donViNguoiGui', label: 'Đơn vị người gửi', value: info.donViNguoiGui || '', type: 'text' },
+      { id: 'lyDoNop', label: 'Lý do nộp', value: info.lyDoNop || '', type: 'textarea' },
+      { id: 'soTien', label: 'Số tiền', value: info.soTien?.toString() || '', type: 'money' },
+    ],
+    ngayThang: info.ngayThang || '',
+    diaDiem: info.diaDiem || 'TP. Cần Thơ',
+  };
+}
+
+// Get receipt data (supports both old and new format)
+function getReceiptData(receipt: Receipt | null | undefined): ReceiptData | null {
+  if (!receipt) return null;
+  if (receipt.data) return receipt.data;
+  if (receipt.info) return convertLegacyToNew(receipt.info);
+  return null;
+}
+
 export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEditorKVProps) {
   const isEditing = !!receipt;
   const receiptRef = useRef<HTMLDivElement>(null);
   
-  // Form data
-  const [formData, setFormData] = useState<ReceiptInfo>({
-    hoTenNguoiNhan: receipt?.info?.hoTenNguoiNhan || '',
-    hoTenNguoiGui: receipt?.info?.hoTenNguoiGui || '',
-    donViNguoiNhan: receipt?.info?.donViNguoiNhan || '',
-    donViNguoiGui: receipt?.info?.donViNguoiGui || '',
-    lyDoNop: receipt?.info?.lyDoNop || '',
-    soTien: receipt?.info?.soTien || 0,
-    bangChu: receipt?.info?.bangChu || '',
-    ngayThang: receipt?.info?.ngayThang || '',
-    diaDiem: receipt?.info?.diaDiem || 'TP. Cần Thơ',
-  });
+  // Get receipt data (supports both formats)
+  const receiptData = getReceiptData(receipt);
+  
+  // Form data with dynamic fields
+  const [title, setTitle] = useState(receiptData?.title || 'GIẤY BIÊN NHẬN TIỀN');
+  const [fields, setFields] = useState<DynamicField[]>(
+    receiptData?.fields || DEFAULT_FIELDS
+  );
+  const [ngayThang, setNgayThang] = useState(receiptData?.ngayThang || '');
+  const [diaDiem, setDiaDiem] = useState(receiptData?.diaDiem || 'TP. Cần Thơ');
+  
+  // Edit mode states
+  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [newFieldLabel, setNewFieldLabel] = useState('');
 
-  // Signature states
+  // Signature states - Admin có thể ký cả 2 bên
+  // Get from top-level or from data
+  const [signatureNguoiNhan, setSignatureNguoiNhan] = useState<string>(
+    receipt?.signatureNguoiNhan || receiptData?.signatureNguoiNhan || ''
+  );
+  const [signatureNguoiGui, setSignatureNguoiGui] = useState<string>(
+    receipt?.signatureNguoiGui || receiptData?.signatureNguoiGui || ''
+  );
+  const [currentSignatureTarget, setCurrentSignatureTarget] = useState<'nguoiNhan' | 'nguoiGui'>('nguoiNhan');
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
-  const [signatureNguoiNhan, setSignatureNguoiNhan] = useState<string>(receipt?.signatureNguoiNhan || '');
+
+  // Computed: bangChu from soTien field
+  const soTienField = fields.find(f => f.type === 'money');
+  const soTien = soTienField ? parseFormattedNumber(soTienField.value) : 0;
+  const bangChu = soTien > 0 ? numberToVietnamese(soTien) : '';
+
+  // Get name fields for signature labels
+  const hoTenNguoiNhan = fields.find(f => f.id === 'hoTenNguoiNhan')?.value || '';
+  const hoTenNguoiGui = fields.find(f => f.id === 'hoTenNguoiGui')?.value || '';
 
   // Action states
   const [saveStatus, setSaveStatus] = useState<ActionStatus>('idle');
@@ -106,45 +177,61 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
   useEffect(() => {
     if (!receipt?.info?.ngayThang) {
       const now = new Date();
-      setFormData(prev => ({
-        ...prev,
-        ngayThang: formatVietnameseDate(now)
-      }));
+      setNgayThang(formatVietnameseDate(now));
     }
   }, [receipt?.info?.ngayThang]);
 
-  // Update bangChu when soTien changes
-  useEffect(() => {
-    if (formData.soTien > 0) {
-      setFormData(prev => ({
-        ...prev,
-        bangChu: numberToVietnamese(prev.soTien)
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        bangChu: ''
-      }));
-    }
-  }, [formData.soTien]);
+  // Handle field value change
+  const handleFieldChange = (id: string, value: string) => {
+    setFields(prev => prev.map(f => 
+      f.id === id ? { ...f, value } : f
+    ));
+  };
 
-  // Handle input change
-  const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    
-    if (name === 'soTien') {
-      const numericValue = parseFormattedNumber(value);
-      setFormData(prev => ({
-        ...prev,
-        soTien: numericValue
-      }));
+  // Handle field label change
+  const handleLabelChange = (id: string, label: string) => {
+    setFields(prev => prev.map(f => 
+      f.id === id ? { ...f, label } : f
+    ));
+  };
+
+  // Add new field
+  const addField = (type: 'text' | 'textarea' = 'text') => {
+    const newField: DynamicField = {
+      id: `custom_${Date.now()}`,
+      label: newFieldLabel || 'Trường mới',
+      value: '',
+      type,
+    };
+    setFields(prev => [...prev, newField]);
+    setNewFieldLabel('');
+  };
+
+  // Remove field
+  const removeField = (id: string) => {
+    setFields(prev => prev.filter(f => f.id !== id));
+  };
+
+  // Move field
+  const moveField = (fromIndex: number, toIndex: number) => {
+    const newFields = [...fields];
+    const [removed] = newFields.splice(fromIndex, 1);
+    newFields.splice(toIndex, 0, removed);
+    setFields(newFields);
+  };
+
+  // Open signature modal for specific target
+  const openSignatureModal = (target: 'nguoiNhan' | 'nguoiGui') => {
+    setCurrentSignatureTarget(target);
+    setIsSignatureModalOpen(true);
+  };
+
+  // Apply signature
+  const applySignature = (sig: string) => {
+    if (currentSignatureTarget === 'nguoiNhan') {
+      setSignatureNguoiNhan(sig);
     } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
+      setSignatureNguoiGui(sig);
     }
   };
 
@@ -152,10 +239,19 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
   const handleSave = async () => {
     setSaveStatus('loading');
     try {
+      const receiptData: ReceiptData = {
+        title,
+        fields,
+        ngayThang,
+        diaDiem,
+        signatureNguoiNhan,
+        signatureNguoiGui,
+      };
+
       const url = isEditing ? '/api/receipts/update' : '/api/receipts/create';
       const body = isEditing 
-        ? { id: receipt.id, info: formData, signatureNguoiNhan }
-        : { info: formData, signatureNguoiNhan };
+        ? { id: receipt.id, info: receiptData }
+        : { info: receiptData };
 
       const res = await fetch(url, {
         method: 'POST',
@@ -202,7 +298,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         backgroundColor: '#ffffff',
         logging: false,
         ignoreElements: (element) => {
-          return element.classList?.contains('print:hidden');
+          return element.classList?.contains('no-print');
         },
       });
 
@@ -257,8 +353,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
       await navigator.clipboard.writeText(url);
       setShowLinkCopied(true);
       setTimeout(() => setShowLinkCopied(false), 2000);
-    } catch (error) {
-      // Fallback
+    } catch {
       const textArea = document.createElement('textarea');
       textArea.value = url;
       document.body.appendChild(textArea);
@@ -281,11 +376,18 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
     try {
       let receiptId = savedReceiptId;
       if (!receiptId) {
-        // Save first
+        const receiptData: ReceiptData = {
+          title,
+          fields,
+          ngayThang,
+          diaDiem,
+          signatureNguoiNhan,
+          signatureNguoiGui,
+        };
         const createRes = await fetch('/api/receipts/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ info: formData, signatureNguoiNhan }),
+          body: JSON.stringify({ info: receiptData }),
         });
         const createData = await createRes.json();
         if (!createData.success) {
@@ -301,8 +403,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerEmail,
-          customerName: formData.hoTenNguoiGui,
-          receiptInfo: formData,
+          customerName: hoTenNguoiGui,
           signingUrl,
         }),
       });
@@ -326,39 +427,31 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
   const getButtonContent = (status: ActionStatus, defaultText: string, Icon: React.ElementType) => {
     switch (status) {
       case 'loading':
-        return (
-          <>
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Đang xử lý...
-          </>
-        );
+        return (<><Loader2 className="w-4 h-4 animate-spin" />Đang xử lý...</>);
       case 'success':
-        return (
-          <>
-            <CheckCircle2 className="w-4 h-4" />
-            Thành công!
-          </>
-        );
+        return (<><CheckCircle2 className="w-4 h-4" />Thành công!</>);
       case 'error':
-        return (
-          <>
-            <AlertCircle className="w-4 h-4" />
-            Có lỗi!
-          </>
-        );
+        return (<><AlertCircle className="w-4 h-4" />Có lỗi!</>);
       default:
-        return (
-          <>
-            <Icon className="w-4 h-4" />
-            {defaultText}
-          </>
-        );
+        return (<><Icon className="w-4 h-4" />{defaultText}</>);
     }
   };
 
+  // Signature status indicator
+  const getSignatureStatus = () => {
+    const hasNguoiNhan = !!signatureNguoiNhan;
+    const hasNguoiGui = !!signatureNguoiGui;
+    
+    if (hasNguoiNhan && hasNguoiGui) return { text: 'Đã ký đầy đủ', color: 'text-green-600 bg-green-50' };
+    if (hasNguoiNhan || hasNguoiGui) return { text: 'Đã ký một phần', color: 'text-yellow-600 bg-yellow-50' };
+    return { text: 'Chưa có chữ ký', color: 'text-gray-500 bg-gray-50' };
+  };
+
+  const signatureStatus = getSignatureStatus();
+
   return (
     <div className="min-h-screen bg-gradient-glass py-8 px-4">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-5xl mx-auto">
         {/* Success - Link Created Panel */}
         {justCreated && savedReceiptId && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -375,9 +468,21 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                 </p>
               </div>
 
+              {/* Signature status */}
+              <div className={cn('px-4 py-2 rounded-xl mb-4 text-center text-sm font-medium', signatureStatus.color)}>
+                {signatureStatus.text}
+                {(!signatureNguoiNhan || !signatureNguoiGui) && (
+                  <span className="block text-xs mt-1 opacity-75">
+                    {!signatureNguoiNhan && !signatureNguoiGui && 'Người nhận link sẽ được yêu cầu ký cả 2 bên'}
+                    {signatureNguoiNhan && !signatureNguoiGui && 'Người nhận link sẽ ký phần "Người gửi tiền"'}
+                    {!signatureNguoiNhan && signatureNguoiGui && 'Người nhận link sẽ ký phần "Người nhận tiền"'}
+                  </span>
+                )}
+              </div>
+
               <div className="mb-6">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Link chia sẻ cho khách hàng ký:
+                  Link chia sẻ:
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -393,17 +498,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                       showLinkCopied ? 'bg-green-600 text-white' : 'glass-button'
                     )}
                   >
-                    {showLinkCopied ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        Đã copy!
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-4 h-4" />
-                        Copy
-                      </>
-                    )}
+                    {showLinkCopied ? (<><Check className="w-4 h-4" />Đã copy!</>) : (<><Copy className="w-4 h-4" />Copy</>)}
                   </button>
                 </div>
               </div>
@@ -436,21 +531,18 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                   <Mail className="w-5 h-5" />
                   Gửi email mời ký
                 </h2>
-                <button
-                  onClick={() => setShowEmailPanel(false)}
-                  className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-                >
+                <button onClick={() => setShowEmailPanel(false)} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
                   <X className="w-5 h-5 text-gray-500" />
                 </button>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email khách hàng</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email người nhận</label>
                   <input
                     type="email"
                     value={customerEmail}
                     onChange={(e) => setCustomerEmail(e.target.value)}
-                    placeholder="customer@example.com"
+                    placeholder="email@example.com"
                     className="w-full glass-input rounded-xl px-4 py-2.5"
                   />
                 </div>
@@ -459,17 +551,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                   disabled={sendingEmail}
                   className="w-full glass-button py-2.5 rounded-xl flex items-center justify-center gap-2"
                 >
-                  {sendingEmail ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Đang gửi...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4" />
-                      Gửi email
-                    </>
-                  )}
+                  {sendingEmail ? (<><Loader2 className="w-4 h-4 animate-spin" />Đang gửi...</>) : (<><Send className="w-4 h-4" />Gửi email</>)}
                 </button>
               </div>
             </div>
@@ -494,7 +576,6 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                   'flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-all',
                   showLinkCopied ? 'bg-green-100 text-green-700' : 'glass-button-outline'
                 )}
-                title="Copy link chia sẻ"
               >
                 {showLinkCopied ? <Check className="w-4 h-4" /> : <Link className="w-4 h-4" />}
                 {showLinkCopied ? 'Đã copy!' : 'Copy link'}
@@ -506,11 +587,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
               disabled={exportStatus === 'loading'}
               className={cn(
                 'flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all',
-                exportStatus === 'success' 
-                  ? 'bg-green-600 text-white' 
-                  : exportStatus === 'error'
-                  ? 'bg-red-600 text-white'
-                  : 'glass-button-outline',
+                exportStatus === 'success' ? 'bg-green-600 text-white' : exportStatus === 'error' ? 'bg-red-600 text-white' : 'glass-button-outline',
                 exportStatus === 'loading' && 'opacity-75 cursor-not-allowed'
               )}
             >
@@ -522,11 +599,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
               disabled={saveStatus === 'loading'}
               className={cn(
                 'flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all',
-                saveStatus === 'success' 
-                  ? 'bg-green-600 text-white' 
-                  : saveStatus === 'error'
-                  ? 'bg-red-600 text-white'
-                  : 'glass-button',
+                saveStatus === 'success' ? 'bg-green-600 text-white' : saveStatus === 'error' ? 'bg-red-600 text-white' : 'glass-button',
                 saveStatus === 'loading' && 'opacity-75 cursor-not-allowed'
               )}
             >
@@ -541,6 +614,107 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
               Gửi Email
             </button>
           </div>
+        </div>
+
+        {/* Field Management Panel */}
+        <div className="glass-card rounded-2xl p-4 mb-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
+            <h3 className="font-semibold text-gray-900">Quản lý trường dữ liệu</h3>
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="text"
+                value={newFieldLabel}
+                onChange={(e) => setNewFieldLabel(e.target.value)}
+                placeholder="Tên trường mới..."
+                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 w-40"
+              />
+              <button
+                onClick={() => addField('text')}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Thêm
+              </button>
+              <button
+                onClick={() => addField('textarea')}
+                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Văn bản dài
+              </button>
+            </div>
+          </div>
+          
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {fields.map((field, index) => (
+              <div 
+                key={field.id}
+                className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg group"
+              >
+                <GripVertical className="w-4 h-4 text-gray-400" />
+                
+                {editingFieldId === field.id ? (
+                  <input
+                    type="text"
+                    value={field.label}
+                    onChange={(e) => handleLabelChange(field.id, e.target.value)}
+                    onBlur={() => setEditingFieldId(null)}
+                    onKeyDown={(e) => e.key === 'Enter' && setEditingFieldId(null)}
+                    className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:border-gray-500"
+                    autoFocus
+                  />
+                ) : (
+                  <span className="flex-1 text-sm text-gray-700">{field.label}</span>
+                )}
+                
+                <span className="text-xs text-gray-400 px-2 py-0.5 bg-gray-200 rounded">
+                  {field.type === 'money' ? 'Số tiền' : field.type === 'textarea' ? 'Văn bản dài' : 'Văn bản'}
+                </span>
+                
+                <button
+                  onClick={() => setEditingFieldId(field.id)}
+                  className="p-1 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Sửa tên"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+                
+                {!['hoTenNguoiNhan', 'hoTenNguoiGui', 'soTien'].includes(field.id) && (
+                  <button
+                    onClick={() => removeField(field.id)}
+                    className="p-1 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Xóa"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+                
+                <div className="flex gap-1">
+                  {index > 0 && (
+                    <button
+                      onClick={() => moveField(index, index - 1)}
+                      className="p-1 text-gray-400 hover:text-gray-600 text-xs"
+                      title="Di chuyển lên"
+                    >
+                      ↑
+                    </button>
+                  )}
+                  {index < fields.length - 1 && (
+                    <button
+                      onClick={() => moveField(index, index + 1)}
+                      className="p-1 text-gray-400 hover:text-gray-600 text-xs"
+                      title="Di chuyển xuống"
+                    >
+                      ↓
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-2">
+            * Các trường "Họ và tên người nhận", "Họ và tên người gửi", "Số tiền" không thể xóa
+          </p>
         </div>
 
         {/* Receipt Paper */}
@@ -567,125 +741,137 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
             <div className="mt-8 text-gray-400">
               -----------------------
             </div>
-            <h1 className="text-2xl font-bold mt-6 tracking-wider">
-              GIẤY BIÊN NHẬN TIỀN
-            </h1>
+            
+            {/* Editable Title */}
+            <div className="mt-6 relative group">
+              {editingTitle ? (
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onBlur={() => setEditingTitle(false)}
+                  onKeyDown={(e) => e.key === 'Enter' && setEditingTitle(false)}
+                  className="text-2xl font-bold tracking-wider text-center w-full border-b-2 border-gray-300 focus:border-gray-600 outline-none bg-transparent"
+                  autoFocus
+                />
+              ) : (
+                <h1 
+                  className="text-2xl font-bold tracking-wider cursor-pointer hover:bg-gray-50 py-1 rounded transition-colors"
+                  onClick={() => setEditingTitle(true)}
+                >
+                  {title}
+                  <Edit3 className="w-4 h-4 inline-block ml-2 opacity-0 group-hover:opacity-50 no-print" />
+                </h1>
+              )}
+            </div>
           </header>
 
-          {/* Body */}
+          {/* Body - Dynamic Fields */}
           <div className="space-y-5 text-base leading-relaxed">
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Họ và tên người nhận:</span>
-              <input
-                type="text"
-                name="hoTenNguoiNhan"
-                value={formData.hoTenNguoiNhan}
-                onChange={handleInputChange}
-                className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent"
-                placeholder="Nguyễn Văn A"
-              />
-            </div>
+            {fields.map((field) => (
+              <div key={field.id} className="flex items-baseline gap-2">
+                <span className="whitespace-nowrap">{field.label}:</span>
+                {field.type === 'textarea' ? (
+                  <textarea
+                    value={field.value}
+                    onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                    rows={2}
+                    className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent resize-none overflow-hidden"
+                    placeholder="..."
+                    style={{ minHeight: '2.5em' }}
+                    onInput={(e) => {
+                      const target = e.target as HTMLTextAreaElement;
+                      target.style.height = 'auto';
+                      target.style.height = target.scrollHeight + 'px';
+                    }}
+                  />
+                ) : field.type === 'money' ? (
+                  <>
+                    <input
+                      type="text"
+                      value={field.value ? formatNumber(parseFormattedNumber(field.value)) : ''}
+                      onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                      className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent"
+                      placeholder="0"
+                    />
+                    <span className="whitespace-nowrap">VNĐ</span>
+                  </>
+                ) : (
+                  <input
+                    type="text"
+                    value={field.value}
+                    onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                    className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent"
+                    placeholder="..."
+                  />
+                )}
+              </div>
+            ))}
 
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Đơn vị người nhận:</span>
-              <input
-                type="text"
-                name="donViNguoiNhan"
-                value={formData.donViNguoiNhan}
-                onChange={handleInputChange}
-                className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent"
-                placeholder="Công ty TNHH ABC"
-              />
-            </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Họ và tên người gửi:</span>
-              <input
-                type="text"
-                name="hoTenNguoiGui"
-                value={formData.hoTenNguoiGui}
-                onChange={handleInputChange}
-                className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent"
-                placeholder="Trần Văn B"
-              />
-            </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Đơn vị người gửi:</span>
-              <input
-                type="text"
-                name="donViNguoiGui"
-                value={formData.donViNguoiGui}
-                onChange={handleInputChange}
-                className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent"
-                placeholder="Công ty XYZ"
-              />
-            </div>
-
-            <div className="flex items-start gap-2">
-              <span className="whitespace-nowrap pt-1">Lý do nộp:</span>
-              <textarea
-                name="lyDoNop"
-                value={formData.lyDoNop}
-                onChange={handleInputChange}
-                rows={2}
-                className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent resize-none overflow-hidden"
-                placeholder="Thanh toán hợp đồng số..."
-                style={{ minHeight: '2.5em' }}
-                onInput={(e) => {
-                  const target = e.target as HTMLTextAreaElement;
-                  target.style.height = 'auto';
-                  target.style.height = target.scrollHeight + 'px';
-                }}
-              />
-            </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Số tiền:</span>
-              <input
-                type="text"
-                name="soTien"
-                value={formData.soTien > 0 ? formatNumber(formData.soTien) : ''}
-                onChange={handleInputChange}
-                className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent"
-                placeholder="0"
-              />
-              <span className="whitespace-nowrap">VNĐ</span>
-            </div>
-
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Bằng chữ:</span>
-              <span data-field="bangChu" className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 italic text-gray-700 min-h-[1.5em]">
-                {formData.bangChu || '...'}
-              </span>
-            </div>
+            {/* Bang chu - auto generated */}
+            {soTien > 0 && (
+              <div className="flex items-baseline gap-2">
+                <span className="whitespace-nowrap">Bằng chữ:</span>
+                <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 italic text-gray-700">
+                  {bangChu}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
           <footer className="mt-16">
-            <div className="text-right italic mb-10">
-              <span>{formData.diaDiem}, </span>
-              <span>{formData.ngayThang}</span>
+            <div className="flex items-baseline gap-2 justify-end italic mb-10">
+              <input
+                type="text"
+                value={diaDiem}
+                onChange={(e) => setDiaDiem(e.target.value)}
+                className="border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent text-right"
+                placeholder="Địa điểm"
+              />
+              <span>, {ngayThang}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-8 text-center">
-              {/* Người gửi tiền - Khách sẽ ký */}
+              {/* Người gửi tiền */}
               <div>
                 <p className="font-bold mb-2">Người gửi tiền</p>
                 <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
                 
                 <div className="min-h-[100px] flex flex-col items-center justify-center">
-                  <span className="text-gray-400 italic text-sm print:hidden">
-                    Khách hàng sẽ ký khi nhận link
-                  </span>
+                  {signatureNguoiGui ? (
+                    <div className="relative group">
+                      <img 
+                        src={signatureNguoiGui} 
+                        alt="Chữ ký người gửi" 
+                        className="h-16 w-auto object-contain"
+                        style={{ imageRendering: 'auto', minWidth: '80px' }}
+                      />
+                      <button
+                        onClick={() => setSignatureNguoiGui('')}
+                        className="absolute -top-2 -right-2 p-1 bg-black text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity no-print"
+                        title="Xóa chữ ký"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => openSignatureModal('nguoiGui')}
+                      className="flex items-center gap-2 px-6 py-3 border-2 border-dashed border-gray-400 rounded-xl text-gray-600 hover:border-gray-600 hover:bg-gray-50 transition-colors no-print font-medium"
+                    >
+                      <PenLine className="w-5 h-5" />
+                      Ký tại đây
+                    </button>
+                  )}
                 </div>
 
-                <p data-field="signatureName" className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
-                  {formData.hoTenNguoiGui || '...........................'}
+                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
+                  {hoTenNguoiGui || '...........................'}
                 </p>
               </div>
 
-              {/* Người nhận tiền - Admin ký */}
+              {/* Người nhận tiền */}
               <div>
                 <p className="font-bold mb-2">Người nhận tiền</p>
                 <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
@@ -701,7 +887,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                       />
                       <button
                         onClick={() => setSignatureNguoiNhan('')}
-                        className="absolute -top-2 -right-2 p-1 bg-black text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity print:hidden"
+                        className="absolute -top-2 -right-2 p-1 bg-black text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity no-print"
                         title="Xóa chữ ký"
                       >
                         <RotateCcw className="w-3 h-3" />
@@ -709,34 +895,40 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                     </div>
                   ) : (
                     <button
-                      onClick={() => setIsSignatureModalOpen(true)}
-                      className="flex items-center gap-2 px-6 py-3 border-2 border-dashed border-gray-400 rounded-xl text-gray-600 hover:border-gray-600 hover:bg-gray-50 transition-colors print:hidden font-medium"
+                      onClick={() => openSignatureModal('nguoiNhan')}
+                      className="flex items-center gap-2 px-6 py-3 border-2 border-dashed border-gray-400 rounded-xl text-gray-600 hover:border-gray-600 hover:bg-gray-50 transition-colors no-print font-medium"
                     >
                       <PenLine className="w-5 h-5" />
-                      Ký xác nhận
+                      Ký tại đây
                     </button>
                   )}
                 </div>
 
-                <p data-field="signatureName" className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
-                  {formData.hoTenNguoiNhan || '...........................'}
+                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
+                  {hoTenNguoiNhan || '...........................'}
                 </p>
               </div>
             </div>
           </footer>
         </div>
 
-        {/* Info text */}
-        <p className="text-center text-gray-500 text-sm mt-4">
-          * Nhấn &quot;Lưu&quot; để tạo biên nhận, sau đó copy link gửi cho khách hàng ký xác nhận
+        {/* Signature Status Info */}
+        <div className="text-center mt-4">
+          <span className={cn('text-sm px-4 py-2 rounded-xl inline-block font-medium', signatureStatus.color)}>
+            {signatureStatus.text}
+          </span>
+        </div>
+
+        <p className="text-center text-gray-500 text-sm mt-2">
+          * Admin có thể ký bất kỳ bên nào. Khi share link, người nhận sẽ được yêu cầu ký phần còn thiếu.
         </p>
       </div>
 
-      {/* Signature Modal for Admin */}
+      {/* Signature Modal */}
       <SignatureModal
         isOpen={isSignatureModalOpen}
         onClose={() => setIsSignatureModalOpen(false)}
-        onApply={(sig) => setSignatureNguoiNhan(sig)}
+        onApply={applySignature}
       />
 
       {/* Toast Container */}

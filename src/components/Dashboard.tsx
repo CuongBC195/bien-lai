@@ -11,7 +11,7 @@ import {
   CheckCircle2,
   Search,
   Calendar,
-  Receipt,
+  Receipt as ReceiptIcon,
   Wallet,
   Clock,
   Loader2
@@ -21,7 +21,8 @@ import ReceiptEditorKV from './ReceiptEditorKV';
 import { ToastContainer, useToast } from './Toast';
 import ShareMenu from './ShareMenu';
 
-interface ReceiptInfo {
+// Legacy ReceiptInfo
+interface LegacyReceiptInfo {
   hoTenNguoiNhan: string;
   hoTenNguoiGui: string;
   donViNguoiNhan: string;
@@ -33,6 +34,24 @@ interface ReceiptInfo {
   diaDiem: string;
 }
 
+// New dynamic field structure
+interface DynamicField {
+  id: string;
+  label: string;
+  value: string;
+  type: 'text' | 'textarea' | 'money';
+}
+
+// New ReceiptData structure
+interface NewReceiptData {
+  title: string;
+  fields: DynamicField[];
+  ngayThang: string;
+  diaDiem: string;
+  signatureNguoiNhan?: string;
+  signatureNguoiGui?: string;
+}
+
 interface SignaturePoint {
   x: number;
   y: number;
@@ -40,10 +59,14 @@ interface SignaturePoint {
   color?: string;
 }
 
-interface ReceiptData {
+// Combined Receipt type - supports both old and new format
+interface Receipt {
   id: string;
-  info: ReceiptInfo;
+  info?: LegacyReceiptInfo;     // Legacy format
+  data?: NewReceiptData;        // New format
   signaturePoints: SignaturePoint[][] | null;
+  signatureNguoiNhan?: string;
+  signatureNguoiGui?: string;
   status: 'pending' | 'signed';
   createdAt: number;
   signedAt?: number;
@@ -53,11 +76,42 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
+// Helper function to get field value from receipt (supports both formats)
+function getReceiptField(receipt: Receipt, fieldId: string): string {
+  // Try new format first
+  if (receipt.data?.fields) {
+    const field = receipt.data.fields.find(f => f.id === fieldId);
+    if (field) return field.value;
+  }
+  // Fall back to legacy format
+  if (receipt.info) {
+    const legacyValue = receipt.info[fieldId as keyof LegacyReceiptInfo];
+    return legacyValue?.toString() || '';
+  }
+  return '';
+}
+
+// Helper to get soTien (money amount)
+function getReceiptAmount(receipt: Receipt): number {
+  // Try new format first
+  if (receipt.data?.fields) {
+    const moneyField = receipt.data.fields.find(f => f.type === 'money');
+    if (moneyField) {
+      return parseInt(moneyField.value.replace(/\D/g, '')) || 0;
+    }
+  }
+  // Fall back to legacy format
+  if (receipt.info?.soTien) {
+    return receipt.info.soTien;
+  }
+  return 0;
+}
+
 export default function Dashboard({ onLogout }: DashboardProps) {
-  const [receipts, setReceipts] = useState<ReceiptData[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editingReceipt, setEditingReceipt] = useState<ReceiptData | null>(null);
+  const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
   const [loading, setLoading] = useState(true);
   
   // Toast notification
@@ -67,7 +121,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [shareMenuOpen, setShareMenuOpen] = useState<string | null>(null);
   const [shareMenuPosition, setShareMenuPosition] = useState({ x: 0, y: 0 });
   const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [selectedReceiptForEmail, setSelectedReceiptForEmail] = useState<ReceiptData | null>(null);
+  const [selectedReceiptForEmail, setSelectedReceiptForEmail] = useState<Receipt | null>(null);
   const [emailAddress, setEmailAddress] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
   
@@ -104,7 +158,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     setIsEditorOpen(true);
   };
 
-  const handleEdit = (receipt: ReceiptData) => {
+  const handleEdit = (receipt: Receipt) => {
     setEditingReceipt(receipt);
     setIsEditorOpen(true);
   };
@@ -135,13 +189,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
   };
 
-  const handleShareClick = (receipt: ReceiptData, event: React.MouseEvent) => {
+  const handleShareClick = (receipt: Receipt, event: React.MouseEvent) => {
     const rect = (event.target as HTMLElement).getBoundingClientRect();
     setShareMenuPosition({ x: rect.right, y: rect.bottom + 8 });
     setShareMenuOpen(receipt.id);
   };
 
-  const handleCopyLink = async (receipt: ReceiptData) => {
+  const handleCopyLink = async (receipt: Receipt) => {
     const url = `${window.location.origin}/?id=${receipt.id}`;
     try {
       await navigator.clipboard.writeText(url);
@@ -152,9 +206,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
   };
 
-  const handleSendEmailClick = (receipt: ReceiptData) => {
+  const handleSendEmailClick = (receipt: Receipt) => {
     setSelectedReceiptForEmail(receipt);
-    setEmailAddress(receipt.info?.hoTenNguoiGui ? '' : '');
+    setEmailAddress('');
     setEmailModalOpen(true);
   };
 
@@ -167,14 +221,15 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     setSendingEmail(true);
     try {
       const url = `${window.location.origin}/?id=${selectedReceiptForEmail.id}`;
+      const receiptName = getReceiptField(selectedReceiptForEmail, 'hoTenNguoiNhan') || 'N/A';
       const res = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: emailAddress,
-          subject: `Biên nhận tiền - ${selectedReceiptForEmail.info?.hoTenNguoiNhan || 'N/A'}`,
+          subject: `Biên nhận tiền - ${receiptName}`,
           receiptId: selectedReceiptForEmail.id,
-          receiptInfo: selectedReceiptForEmail.info,
+          receiptInfo: selectedReceiptForEmail.info || selectedReceiptForEmail.data,
           signUrl: url,
         }),
       });
@@ -203,9 +258,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   };
 
   const filteredReceipts = receipts.filter(r => 
-    (r.info?.hoTenNguoiNhan || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (r.info?.hoTenNguoiGui || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (r.info?.lyDoNop || '').toLowerCase().includes(searchTerm.toLowerCase())
+    getReceiptField(r, 'hoTenNguoiNhan').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    getReceiptField(r, 'hoTenNguoiGui').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    getReceiptField(r, 'lyDoNop').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const formatDate = (timestamp: number) => {
@@ -286,7 +341,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           <div className="glass-card rounded-2xl p-5">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
-                <Receipt className="w-5 h-5 text-gray-700" />
+                <ReceiptIcon className="w-5 h-5 text-gray-700" />
               </div>
               <p className="text-sm text-gray-500 font-medium">Tổng biên nhận</p>
             </div>
@@ -300,7 +355,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <p className="text-sm text-gray-500 font-medium">Tổng số tiền</p>
             </div>
             <p className="text-3xl font-bold text-gray-900">
-              {formatNumber(receipts.reduce((sum, r) => sum + (r.info?.soTien || 0), 0))} <span className="text-lg font-normal text-gray-500">₫</span>
+              {formatNumber(receipts.reduce((sum, r) => sum + getReceiptAmount(r), 0))} <span className="text-lg font-normal text-gray-500">₫</span>
             </p>
           </div>
           <div className="glass-card rounded-2xl p-5">
@@ -368,19 +423,19 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                       </td>
                       <td className="px-5 py-4">
                         <div>
-                          <p className="font-medium text-gray-900">{receipt.info?.hoTenNguoiNhan || 'N/A'}</p>
-                          <p className="text-sm text-gray-500">{receipt.info?.donViNguoiNhan || '-'}</p>
+                          <p className="font-medium text-gray-900">{getReceiptField(receipt, 'hoTenNguoiNhan') || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{getReceiptField(receipt, 'donViNguoiNhan') || '-'}</p>
                         </div>
                       </td>
                       <td className="px-5 py-4">
                         <div>
-                          <p className="font-medium text-gray-900">{receipt.info?.hoTenNguoiGui || 'N/A'}</p>
-                          <p className="text-sm text-gray-500">{receipt.info?.donViNguoiGui || '-'}</p>
+                          <p className="font-medium text-gray-900">{getReceiptField(receipt, 'hoTenNguoiGui') || 'N/A'}</p>
+                          <p className="text-sm text-gray-500">{getReceiptField(receipt, 'donViNguoiGui') || '-'}</p>
                         </div>
                       </td>
                       <td className="px-5 py-4">
                         <span className="font-semibold text-gray-900">
-                          {formatNumber(receipt.info?.soTien || 0)} ₫
+                          {formatNumber(getReceiptAmount(receipt))} ₫
                         </span>
                       </td>
                       <td className="px-5 py-4">

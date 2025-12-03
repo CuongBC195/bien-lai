@@ -4,26 +4,27 @@ import { signReceipt, SignaturePoint } from '@/lib/kv';
 interface SignReceiptRequest {
   id: string;
   signaturePoints?: SignaturePoint[][];
-  signatureNguoiGui?: string; // Chữ ký khách base64
+  signatureNguoiGui?: string; // Chữ ký người gửi tiền (base64)
+  signatureNguoiNhan?: string; // Chữ ký người nhận tiền (base64)
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: SignReceiptRequest = await request.json();
-    const { id, signaturePoints, signatureNguoiGui } = body;
+    const { id, signaturePoints, signatureNguoiGui, signatureNguoiNhan } = body;
 
-    if (!id || (!signaturePoints && !signatureNguoiGui)) {
+    if (!id || (!signaturePoints && !signatureNguoiGui && !signatureNguoiNhan)) {
       return NextResponse.json(
-        { success: false, error: 'Receipt ID and signature are required' },
+        { success: false, error: 'Receipt ID and at least one signature are required' },
         { status: 400 }
       );
     }
 
-    const receipt = await signReceipt(id, signaturePoints || [], signatureNguoiGui);
+    const receipt = await signReceipt(id, signaturePoints, signatureNguoiGui, signatureNguoiNhan);
 
     if (!receipt) {
       return NextResponse.json(
-        { success: false, error: 'Receipt not found or already signed' },
+        { success: false, error: 'Receipt not found' },
         { status: 404 }
       );
     }

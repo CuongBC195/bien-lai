@@ -11,7 +11,7 @@ export function createReceiptId(): string {
   return `3DO-${generateId()}`;
 }
 
-// Types
+// Types - Legacy format (for backward compatibility)
 export interface ReceiptInfo {
   hoTenNguoiNhan: string;
   hoTenNguoiGui: string;
@@ -24,6 +24,24 @@ export interface ReceiptInfo {
   diaDiem: string;
 }
 
+// New dynamic field structure
+export interface DynamicField {
+  id: string;
+  label: string;
+  value: string;
+  type: 'text' | 'textarea' | 'money';
+}
+
+// New receipt data structure
+export interface ReceiptData {
+  title: string;
+  fields: DynamicField[];
+  ngayThang: string;
+  diaDiem: string;
+  signatureNguoiNhan?: string;
+  signatureNguoiGui?: string;
+}
+
 export interface SignaturePoint {
   x: number;
   y: number;
@@ -33,7 +51,9 @@ export interface SignaturePoint {
 
 export interface Receipt {
   id: string;
-  info: ReceiptInfo;
+  // Support both old and new format
+  info?: ReceiptInfo;  // Legacy format
+  data?: ReceiptData;  // New format
   signaturePoints: SignaturePoint[][] | null;
   signatureNguoiNhan?: string; // Chữ ký admin (base64)
   signatureNguoiGui?: string; // Chữ ký khách (base64)
@@ -47,18 +67,29 @@ const RECEIPT_KEY = (id: string) => `receipt:${id}`;
 const ADMIN_LIST_KEY = 'admin:receipt_ids';
 
 // CRUD Operations
+
+// Create receipt with new ReceiptData format
 export async function createReceipt(
-  info: ReceiptInfo,
+  infoOrData: ReceiptInfo | ReceiptData,
   signaturePoints?: SignaturePoint[][] | null,
-  signatureNguoiNhan?: string
+  signatureNguoiNhan?: string,
+  signatureNguoiGui?: string
 ): Promise<Receipt> {
   const id = createReceiptId();
+  
+  // Detect if it's new format (has 'fields' array) or legacy format
+  const isNewFormat = 'fields' in infoOrData;
+  
   const receipt: Receipt = {
     id,
-    info,
+    ...(isNewFormat 
+      ? { data: infoOrData as ReceiptData }
+      : { info: infoOrData as ReceiptInfo }
+    ),
     signaturePoints: signaturePoints || null,
-    signatureNguoiNhan: signatureNguoiNhan || undefined,
-    status: signaturePoints ? 'signed' : 'pending',
+    signatureNguoiNhan: signatureNguoiNhan || (isNewFormat ? (infoOrData as ReceiptData).signatureNguoiNhan : undefined),
+    signatureNguoiGui: signatureNguoiGui || (isNewFormat ? (infoOrData as ReceiptData).signatureNguoiGui : undefined),
+    status: 'pending',
     createdAt: Date.now(),
   };
 
@@ -91,15 +122,26 @@ export async function updateReceipt(
 
 export async function signReceipt(
   id: string,
-  signaturePoints: SignaturePoint[][],
-  signatureNguoiGui?: string
+  signaturePoints?: SignaturePoint[][],
+  signatureNguoiGui?: string,
+  signatureNguoiNhan?: string
 ): Promise<Receipt | null> {
-  return await updateReceipt(id, {
-    signaturePoints,
-    signatureNguoiGui: signatureNguoiGui || undefined,
+  const updates: Partial<Receipt> = {
     status: 'signed',
     signedAt: Date.now(),
-  });
+  };
+  
+  if (signaturePoints && signaturePoints.length > 0) {
+    updates.signaturePoints = signaturePoints;
+  }
+  if (signatureNguoiGui) {
+    updates.signatureNguoiGui = signatureNguoiGui;
+  }
+  if (signatureNguoiNhan) {
+    updates.signatureNguoiNhan = signatureNguoiNhan;
+  }
+  
+  return await updateReceipt(id, updates);
 }
 
 export async function deleteReceipt(id: string): Promise<boolean> {

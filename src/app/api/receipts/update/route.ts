@@ -1,17 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateReceipt, ReceiptInfo, SignaturePoint } from '@/lib/kv';
+import { updateReceipt, ReceiptInfo, ReceiptData, SignaturePoint } from '@/lib/kv';
 
 interface UpdateReceiptRequest {
   id: string;
-  info?: ReceiptInfo;
+  // Support both old and new format
+  info?: ReceiptInfo;      // Legacy format
+  data?: ReceiptData;      // New format
   signaturePoints?: SignaturePoint[][] | null;
+  signatureNguoiNhan?: string;
+  signatureNguoiGui?: string;
   status?: 'pending' | 'signed';
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: UpdateReceiptRequest = await request.json();
-    const { id, ...updates } = body;
+    const { id, info, data, signatureNguoiNhan, signatureNguoiGui, ...updates } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -20,7 +24,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const receipt = await updateReceipt(id, updates);
+    // Build updates object
+    const updateData: Record<string, unknown> = { ...updates };
+    
+    if (data) {
+      updateData.data = data;
+      // Clear legacy info if using new format
+      updateData.info = undefined;
+    } else if (info) {
+      updateData.info = info;
+    }
+    
+    if (signatureNguoiNhan !== undefined) {
+      updateData.signatureNguoiNhan = signatureNguoiNhan;
+    }
+    if (signatureNguoiGui !== undefined) {
+      updateData.signatureNguoiGui = signatureNguoiGui;
+    }
+
+    const receipt = await updateReceipt(id, updateData);
 
     if (!receipt) {
       return NextResponse.json(
