@@ -132,10 +132,10 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
         />
         
         {/* Modal Content */}
-        <div className="relative glass-card rounded-2xl w-full max-w-lg mx-4 overflow-hidden">
+        <div className="relative glass-card rounded-2xl w-full max-w-lg mx-2 sm:mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200/50">
-            <h2 className="text-xl font-semibold text-gray-900">Ký xác nhận</h2>
+          <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200/50">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Ký xác nhận</h2>
             <button
               onClick={onClose}
               className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
@@ -149,7 +149,7 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
             <button
               onClick={() => { setActiveTab('draw'); setErrorMessage(null); }}
               className={cn(
-                'flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors',
+                'flex-1 flex items-center justify-center gap-2 py-2.5 sm:py-3 px-3 sm:px-4 font-medium transition-colors text-sm sm:text-base',
                 activeTab === 'draw'
                   ? 'text-gray-900 border-b-2 border-gray-900 bg-gray-50'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50/50'
@@ -161,7 +161,7 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
             <button
               onClick={() => { setActiveTab('type'); setErrorMessage(null); }}
               className={cn(
-                'flex-1 flex items-center justify-center gap-2 py-3 px-4 font-medium transition-colors',
+                'flex-1 flex items-center justify-center gap-2 py-2.5 sm:py-3 px-3 sm:px-4 font-medium transition-colors text-sm sm:text-base',
                 activeTab === 'type'
                   ? 'text-gray-900 border-b-2 border-gray-900 bg-gray-50'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50/50'
@@ -173,9 +173,9 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
           </div>
 
           {/* Tab Content */}
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             {activeTab === 'draw' && (
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 {/* Color picker */}
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-gray-600">Màu mực:</span>
@@ -200,10 +200,8 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
                     ref={signatureRef}
                     penColor={penColor}
                     canvasProps={{
-                      width: 440,
-                      height: 200,
                       className: 'signature-canvas w-full',
-                      style: { width: '100%', height: '200px' }
+                      style: { width: '100%', height: '150px', touchAction: 'none' }
                     }}
                     backgroundColor="white"
                   />
@@ -299,16 +297,16 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
           )}
 
           {/* Footer */}
-          <div className="flex justify-end gap-3 px-6 py-4 bg-gray-50/50 border-t border-gray-200/50">
+          <div className="flex justify-end gap-2 sm:gap-3 px-4 sm:px-6 py-3 sm:py-4 bg-gray-50/50 border-t border-gray-200/50">
             <button
               onClick={onClose}
-              className="px-5 py-2.5 text-gray-700 glass-button-outline rounded-xl font-medium"
+              className="px-4 sm:px-5 py-2 sm:py-2.5 text-gray-700 glass-button-outline rounded-xl font-medium text-sm sm:text-base"
             >
               Hủy
             </button>
             <button
               onClick={handleApply}
-              className="flex items-center gap-2 px-5 py-2.5 glass-button rounded-xl font-medium"
+              className="flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 glass-button rounded-xl font-medium text-sm sm:text-base"
             >
               <Check className="w-4 h-4" />
               Áp dụng

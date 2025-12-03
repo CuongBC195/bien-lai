@@ -408,7 +408,70 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           </div>
         ) : (
           <div className="glass-card rounded-2xl overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Mobile view - Cards */}
+            <div className="block sm:hidden divide-y divide-gray-100">
+              {filteredReceipts.map((receipt) => (
+                <div key={receipt.id} className="p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="font-medium text-gray-900">{getReceiptField(receipt, 'hoTenNguoiNhan') || 'N/A'}</p>
+                      <p className="text-xs text-gray-500">{getReceiptField(receipt, 'donViNguoiNhan') || '-'}</p>
+                    </div>
+                    {receipt.status === 'signed' ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Đã ký
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                        <Clock className="w-3 h-3" />
+                        Chờ ký
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-semibold text-gray-900">
+                      {formatNumber(getReceiptAmount(receipt))} ₫
+                    </span>
+                    <span className="text-xs text-gray-400">{formatDate(receipt.createdAt)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => handleShareClick(receipt, e)}
+                      className="flex-1 flex items-center justify-center gap-1 p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      Chia sẻ
+                    </button>
+                    {shareMenuOpen === receipt.id && (
+                      <ShareMenu
+                        isOpen={true}
+                        onClose={() => setShareMenuOpen(null)}
+                        onCopyLink={() => handleCopyLink(receipt)}
+                        onSendEmail={() => handleSendEmailClick(receipt)}
+                        position={shareMenuPosition}
+                      />
+                    )}
+                    <button
+                      onClick={() => handleEdit(receipt)}
+                      className="flex-1 flex items-center justify-center gap-1 p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      Sửa
+                    </button>
+                    <button
+                      onClick={() => handleDelete(receipt.id)}
+                      className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop view - Table */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50/50 border-b border-gray-200/50">
                   <tr>

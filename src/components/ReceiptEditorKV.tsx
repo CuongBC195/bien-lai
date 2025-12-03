@@ -461,7 +461,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
   const signatureStatus = getSignatureStatus();
 
   return (
-    <div className="min-h-screen bg-gradient-glass py-8 px-4">
+    <div className="min-h-screen bg-gradient-glass py-4 sm:py-8 px-2 sm:px-4">
       <div className="max-w-5xl mx-auto">
         {/* Success - Link Created Panel */}
         {justCreated && savedReceiptId && (
@@ -570,74 +570,76 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         )}
 
         {/* Action Bar */}
-        <div className="glass-card rounded-2xl p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
-          <button
-            onClick={onCancel}
-            className="flex items-center gap-2 px-4 py-2.5 text-gray-600 hover:text-gray-900 glass-button-outline rounded-xl transition-all"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            Quay lại
-          </button>
+        <div className="glass-card rounded-2xl p-3 sm:p-4 mb-4 sm:mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+            <button
+              onClick={onCancel}
+              className="flex items-center justify-center sm:justify-start gap-2 px-4 py-2.5 text-gray-600 hover:text-gray-900 glass-button-outline rounded-xl transition-all w-full sm:w-auto"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              Quay lại
+            </button>
 
-          <div className="flex flex-wrap gap-3">
-            {savedReceiptId && (
+            <div className="grid grid-cols-2 sm:flex gap-2 sm:gap-3">
+              {savedReceiptId && (
+                <button
+                  onClick={handleCopyLink}
+                  className={cn(
+                    'flex items-center justify-center gap-2 px-3 sm:px-4 py-2.5 rounded-xl font-medium transition-all text-sm',
+                    showLinkCopied ? 'bg-green-100 text-green-700' : 'glass-button-outline'
+                  )}
+                >
+                  {showLinkCopied ? <Check className="w-4 h-4" /> : <Link className="w-4 h-4" />}
+                  <span className="hidden sm:inline">{showLinkCopied ? 'Đã copy!' : 'Copy link'}</span>
+                </button>
+              )}
+              
               <button
-                onClick={handleCopyLink}
+                onClick={handleExportPDF}
+                disabled={exportStatus === 'loading'}
                 className={cn(
-                  'flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-all',
-                  showLinkCopied ? 'bg-green-100 text-green-700' : 'glass-button-outline'
+                  'flex items-center justify-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-medium transition-all text-sm',
+                  exportStatus === 'success' ? 'bg-green-600 text-white' : exportStatus === 'error' ? 'bg-red-600 text-white' : 'glass-button-outline',
+                  exportStatus === 'loading' && 'opacity-75 cursor-not-allowed'
                 )}
               >
-                {showLinkCopied ? <Check className="w-4 h-4" /> : <Link className="w-4 h-4" />}
-                {showLinkCopied ? 'Đã copy!' : 'Copy link'}
+                {getButtonContent(exportStatus, 'PDF', FileDown)}
               </button>
-            )}
-            
-            <button
-              onClick={handleExportPDF}
-              disabled={exportStatus === 'loading'}
-              className={cn(
-                'flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all',
-                exportStatus === 'success' ? 'bg-green-600 text-white' : exportStatus === 'error' ? 'bg-red-600 text-white' : 'glass-button-outline',
-                exportStatus === 'loading' && 'opacity-75 cursor-not-allowed'
-              )}
-            >
-              {getButtonContent(exportStatus, 'Xuất PDF', FileDown)}
-            </button>
-            
-            <button
-              onClick={handleSave}
-              disabled={saveStatus === 'loading'}
-              className={cn(
-                'flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium transition-all',
-                saveStatus === 'success' ? 'bg-green-600 text-white' : saveStatus === 'error' ? 'bg-red-600 text-white' : 'glass-button',
-                saveStatus === 'loading' && 'opacity-75 cursor-not-allowed'
-              )}
-            >
-              {getButtonContent(saveStatus, isEditing ? 'Cập nhật' : 'Lưu', Save)}
-            </button>
+              
+              <button
+                onClick={handleSave}
+                disabled={saveStatus === 'loading'}
+                className={cn(
+                  'flex items-center justify-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-medium transition-all text-sm',
+                  saveStatus === 'success' ? 'bg-green-600 text-white' : saveStatus === 'error' ? 'bg-red-600 text-white' : 'glass-button',
+                  saveStatus === 'loading' && 'opacity-75 cursor-not-allowed'
+                )}
+              >
+                {getButtonContent(saveStatus, isEditing ? 'Lưu' : 'Lưu', Save)}
+              </button>
 
-            <button
-              onClick={() => setShowEmailPanel(true)}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-medium glass-button-outline"
-            >
-              <Mail className="w-4 h-4" />
-              Gửi Email
-            </button>
+              <button
+                onClick={() => setShowEmailPanel(true)}
+                className="flex items-center justify-center gap-2 px-3 sm:px-5 py-2.5 rounded-xl font-medium glass-button-outline text-sm"
+              >
+                <Mail className="w-4 h-4" />
+                <span className="hidden sm:inline">Email</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Field Management Panel */}
-        <div className="glass-card rounded-2xl p-4 mb-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
-            <h3 className="font-semibold text-gray-900">Quản lý trường dữ liệu</h3>
+        <div className="glass-card rounded-2xl p-3 sm:p-4 mb-4 sm:mb-6">
+          <div className="flex flex-col gap-3 mb-4">
+            <h3 className="font-semibold text-gray-900 text-sm sm:text-base">Quản lý trường dữ liệu</h3>
             <div className="flex flex-wrap gap-2">
               <input
                 type="text"
                 value={newFieldLabel}
                 onChange={(e) => setNewFieldLabel(e.target.value)}
                 placeholder="Tên trường mới..."
-                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400 w-40"
+                className="flex-1 min-w-[120px] px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-gray-400"
               />
               <button
                 onClick={() => addField('text')}
@@ -731,30 +733,29 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         {/* Receipt Paper */}
         <div 
           ref={receiptRef}
-          className="bg-white shadow-2xl mx-auto rounded-lg"
+          className="bg-white shadow-2xl mx-auto rounded-lg w-full max-w-[210mm]"
           style={{
-            width: '210mm',
-            minHeight: '297mm',
-            padding: '20mm 25mm',
+            minHeight: 'auto',
+            padding: 'clamp(16px, 5vw, 25mm) clamp(12px, 4vw, 25mm)',
             fontFamily: '"Times New Roman", Tinos, serif',
           }}
         >
           {/* Header */}
-          <header className="text-center mb-8">
-            <h2 className="text-base font-bold tracking-wide">
+          <header className="text-center mb-4 sm:mb-8">
+            <h2 className="text-sm sm:text-base font-bold tracking-wide">
               CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
             </h2>
-            <p className="text-base mt-1">
+            <p className="text-sm sm:text-base mt-1">
               <span style={{ textDecoration: 'underline', textUnderlineOffset: '4px' }}>
                 Độc lập - Tự do - Hạnh phúc
               </span>
             </p>
-            <div className="mt-8 text-gray-400">
+            <div className="mt-4 sm:mt-8 text-gray-400 text-xs sm:text-base">
               -----------------------
             </div>
             
             {/* Editable Title */}
-            <div className="mt-6 relative group">
+            <div className="mt-4 sm:mt-6 relative group">
               {editingTitle ? (
                 <input
                   type="text"
@@ -762,32 +763,32 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                   onChange={(e) => setTitle(e.target.value)}
                   onBlur={() => setEditingTitle(false)}
                   onKeyDown={(e) => e.key === 'Enter' && setEditingTitle(false)}
-                  className="text-2xl font-bold tracking-wider text-center w-full border-b-2 border-gray-300 focus:border-gray-600 outline-none bg-transparent"
+                  className="text-lg sm:text-2xl font-bold tracking-wider text-center w-full border-b-2 border-gray-300 focus:border-gray-600 outline-none bg-transparent"
                   autoFocus
                 />
               ) : (
                 <h1 
-                  className="text-2xl font-bold tracking-wider cursor-pointer hover:bg-gray-50 py-1 rounded transition-colors"
+                  className="text-lg sm:text-2xl font-bold tracking-wider cursor-pointer hover:bg-gray-50 py-1 rounded transition-colors"
                   onClick={() => setEditingTitle(true)}
                 >
                   {title}
-                  <Edit3 className="w-4 h-4 inline-block ml-2 opacity-0 group-hover:opacity-50 no-print" />
+                  <Edit3 className="w-3 h-3 sm:w-4 sm:h-4 inline-block ml-2 opacity-0 group-hover:opacity-50 no-print" />
                 </h1>
               )}
             </div>
           </header>
 
           {/* Body - Dynamic Fields */}
-          <div className="space-y-5 text-base leading-relaxed">
+          <div className="space-y-3 sm:space-y-5 text-sm sm:text-base leading-relaxed">
             {fields.map((field) => (
-              <div key={field.id} className="flex items-baseline gap-2">
-                <span className="whitespace-nowrap">{field.label}:</span>
+              <div key={field.id} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2">
+                <span className="whitespace-nowrap text-gray-600 sm:text-black text-xs sm:text-base">{field.label}:</span>
                 {field.type === 'textarea' ? (
                   <textarea
                     value={field.value}
                     onChange={(e) => handleFieldChange(field.id, e.target.value)}
                     rows={2}
-                    className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent resize-none overflow-hidden"
+                    className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent resize-none overflow-hidden text-sm sm:text-base"
                     placeholder="..."
                     style={{ minHeight: '2.5em' }}
                     onInput={(e) => {
@@ -797,22 +798,22 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                     }}
                   />
                 ) : field.type === 'money' ? (
-                  <>
+                  <div className="flex-1 flex items-baseline gap-2">
                     <input
                       type="text"
                       value={field.value ? formatNumber(parseFormattedNumber(field.value)) : ''}
                       onChange={(e) => handleFieldChange(field.id, e.target.value)}
-                      className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent"
+                      className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent text-sm sm:text-base"
                       placeholder="0"
                     />
-                    <span className="whitespace-nowrap">VNĐ</span>
-                  </>
+                    <span className="whitespace-nowrap text-sm sm:text-base">VNĐ</span>
+                  </div>
                 ) : (
                   <input
                     type="text"
                     value={field.value}
                     onChange={(e) => handleFieldChange(field.id, e.target.value)}
-                    className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent"
+                    className="flex-1 border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent text-sm sm:text-base"
                     placeholder="..."
                   />
                 )}
@@ -821,9 +822,9 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
             {/* Bang chu - auto generated */}
             {soTien > 0 && (
-              <div className="flex items-baseline gap-2">
-                <span className="whitespace-nowrap">Bằng chữ:</span>
-                <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 italic text-gray-700">
+              <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2">
+                <span className="whitespace-nowrap text-gray-600 sm:text-black text-xs sm:text-base">Bằng chữ:</span>
+                <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 italic text-gray-700 text-sm sm:text-base">
                   {bangChu}
                 </span>
               </div>
@@ -831,22 +832,22 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
           </div>
 
           {/* Footer */}
-          <footer className="mt-16">
-            <div className="flex items-baseline gap-2 justify-end italic mb-10">
+          <footer className="mt-8 sm:mt-16">
+            <div className="flex flex-col sm:flex-row items-end gap-1 sm:gap-2 justify-end italic mb-6 sm:mb-10 text-sm sm:text-base">
               <input
                 type="text"
                 value={diaDiem}
                 onChange={(e) => setDiaDiem(e.target.value)}
-                className="border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent text-right"
+                className="border-b border-dotted border-gray-400 focus:border-gray-900 outline-none px-2 py-1 bg-transparent text-right w-32 sm:w-auto"
                 placeholder="Địa điểm"
               />
               <span>, {ngayThang}</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-8 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 text-center">
               {/* Người gửi tiền */}
               <div>
-                <p className="font-bold mb-2">Người gửi tiền</p>
+                <p className="font-bold mb-2 text-sm sm:text-base">Người gửi tiền</p>
                 <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
                 
                 <div className="min-h-[100px] flex flex-col items-center justify-center">
@@ -884,8 +885,8 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
               {/* Người nhận tiền */}
               <div>
-                <p className="font-bold mb-2">Người nhận tiền</p>
-                <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
+                <p className="font-bold mb-2 text-sm sm:text-base">Người nhận tiền</p>
+                <p className="text-xs sm:text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
                 
                 <div className="min-h-[100px] flex flex-col items-center justify-center">
                   {signatureNguoiNhan ? (

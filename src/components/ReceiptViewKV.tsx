@@ -480,28 +480,28 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
       <div className="max-w-4xl mx-auto">
         {/* Success Message */}
         {showSuccess && (
-          <div className="glass-card rounded-2xl p-6 mb-6 text-center border-2 border-green-400">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle2 className="w-8 h-8 text-green-600" />
+          <div className="glass-card rounded-2xl p-4 sm:p-6 mb-4 sm:mb-6 text-center border-2 border-green-400">
+            <div className="w-12 h-12 sm:w-16 sm:h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+              <CheckCircle2 className="w-6 h-6 sm:w-8 sm:h-8 text-green-600" />
             </div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">
               Biên lai đã được ký xác nhận!
             </h2>
-            <p className="text-gray-500">
+            <p className="text-sm sm:text-base text-gray-500">
               Bạn có thể tải PDF để lưu trữ.
             </p>
           </div>
         )}
 
         {/* Header Bar */}
-        <div className="glass-card rounded-2xl p-4 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-black/90 flex items-center justify-center">
-              <FileText className="w-5 h-5 text-white" />
+        <div className="glass-card rounded-2xl p-3 sm:p-4 mb-4 sm:mb-6">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-black/90 flex items-center justify-center flex-shrink-0">
+              <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
             </div>
-            <div>
-              <h1 className="font-semibold text-gray-900">Biên lai #{receipt.id}</h1>
-              <p className="text-sm text-gray-500">
+            <div className="min-w-0 flex-1">
+              <h1 className="font-semibold text-gray-900 text-sm sm:text-base truncate">Biên lai #{receipt.id}</h1>
+              <p className="text-xs sm:text-sm text-gray-500">
                 {showSuccess 
                   ? 'Đã hoàn tất - Có thể tải PDF bên dưới'
                   : canSend()
@@ -515,37 +515,36 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
         {/* Receipt Paper */}
         <div 
           ref={receiptRef}
-          className="bg-white shadow-2xl mx-auto rounded-lg"
+          className="bg-white shadow-2xl mx-auto rounded-lg w-full max-w-[210mm]"
           style={{
-            width: '210mm',
-            minHeight: '297mm',
-            padding: '20mm 25mm',
+            minHeight: 'auto',
+            padding: 'clamp(16px, 5vw, 25mm) clamp(12px, 4vw, 25mm)',
             fontFamily: '"Times New Roman", Tinos, serif',
           }}
         >
           {/* Header */}
-          <header className="text-center mb-8">
-            <h2 className="text-base font-bold tracking-wide">
+          <header className="text-center mb-4 sm:mb-8">
+            <h2 className="text-sm sm:text-base font-bold tracking-wide">
               CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
             </h2>
-            <p className="text-base mt-1">
+            <p className="text-sm sm:text-base mt-1">
               <span style={{ textDecoration: 'underline', textUnderlineOffset: '4px' }}>
                 Độc lập - Tự do - Hạnh phúc
               </span>
             </p>
-            <div className="mt-8 text-gray-400">
+            <div className="mt-4 sm:mt-8 text-gray-400 text-xs sm:text-base">
               -----------------------
             </div>
-            <h1 className="text-2xl font-bold mt-6 tracking-wider">
+            <h1 className="text-lg sm:text-2xl font-bold mt-4 sm:mt-6 tracking-wider">
               {receiptData.title || 'GIẤY BIÊN NHẬN TIỀN'}
             </h1>
           </header>
 
           {/* Body - Dynamic Fields */}
-          <div className="space-y-5 text-base leading-relaxed">
+          <div className="space-y-3 sm:space-y-5 text-sm sm:text-base leading-relaxed">
             {receiptData.fields.map((field) => (
-              <div key={field.id} className="flex items-baseline gap-2">
-                <span className="whitespace-nowrap">{field.label}:</span>
+              <div key={field.id} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2">
+                <span className="whitespace-nowrap text-gray-600 sm:text-black text-xs sm:text-base">{field.label}:</span>
                 <span className={cn(
                   "flex-1 border-b border-dotted border-gray-400 px-2 py-1",
                   field.type === 'money' && "font-semibold"
@@ -559,8 +558,8 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
             ))}
             
             {/* Bằng chữ - auto calculate from soTien */}
-            <div className="flex items-baseline gap-2">
-              <span className="whitespace-nowrap">Bằng chữ:</span>
+            <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2">
+              <span className="whitespace-nowrap text-gray-600 sm:text-black text-xs sm:text-base">Bằng chữ:</span>
               <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 italic text-gray-700">
                 {numberToVietnamese(getSoTien())}
               </span>
@@ -568,13 +567,13 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
           </div>
 
           {/* Footer with Signatures */}
-          <footer className="mt-16">
-            <div className="text-right italic mb-10">
+          <footer className="mt-8 sm:mt-16">
+            <div className="text-right italic mb-6 sm:mb-10 text-sm sm:text-base">
               <span>{receiptData.diaDiem || 'TP. Cần Thơ'}, </span>
               <span>{receiptData.ngayThang || formatVietnameseDate(new Date())}</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-8 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 text-center">
               {/* Người gửi tiền */}
               {renderSignatureBox(
                 'nguoiGui',
@@ -595,56 +594,58 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
         </div>
 
         {/* Action Buttons */}
-        <div className="mt-6 bg-white rounded-2xl p-6 shadow-lg flex flex-wrap justify-center gap-4 print:hidden">
-          {/* Send Button */}
-          {!showSuccess && (
-            <button
-              onClick={handleSignAndSend}
-              disabled={sendStatus === 'loading' || !canSend()}
-              className={cn(
-                'inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all',
-                sendStatus === 'success' 
-                  ? 'bg-green-600 text-white' 
-                  : sendStatus === 'error'
-                  ? 'bg-red-600 text-white'
-                  : 'bg-black text-white hover:bg-gray-800',
-                (sendStatus === 'loading' || !canSend()) && 'opacity-30 cursor-not-allowed'
-              )}
-            >
-              {sendStatus === 'loading' ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Đang gửi...
-                </>
-              ) : sendStatus === 'success' ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  Đã gửi!
-                </>
-              ) : sendStatus === 'error' ? (
-                <>
-                  <AlertCircle className="w-4 h-4" />
-                  Thử lại
-                </>
-              ) : (
-                <>
-                  <Send className="w-4 h-4" />
-                  Hoàn tất & Gửi
-                </>
-              )}
-            </button>
-          )}
+        <div className="mt-4 sm:mt-6 bg-white rounded-2xl p-4 sm:p-6 shadow-lg print:hidden">
+          <div className="flex flex-col gap-3">
+            {/* Send Button - Hiển thị khi chưa hoàn tất */}
+            {!showSuccess && (
+              <button
+                onClick={handleSignAndSend}
+                disabled={sendStatus === 'loading' || !canSend()}
+                className={cn(
+                  'w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-medium transition-all text-sm sm:text-base',
+                  sendStatus === 'success' 
+                    ? 'bg-green-600 text-white' 
+                    : sendStatus === 'error'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-black text-white hover:bg-gray-800',
+                  (sendStatus === 'loading' || !canSend()) && 'opacity-30 cursor-not-allowed'
+                )}
+              >
+                {sendStatus === 'loading' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Đang gửi...
+                  </>
+                ) : sendStatus === 'success' ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    Đã gửi!
+                  </>
+                ) : sendStatus === 'error' ? (
+                  <>
+                    <AlertCircle className="w-4 h-4" />
+                    Thử lại
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    Hoàn tất & Gửi
+                  </>
+                )}
+              </button>
+            )}
 
-          {/* Export PDF Button */}
-          {(showSuccess || sendStatus === 'success') && (
+            {/* Export PDF Button - Riêng biệt, chỉ sáng khi đã hoàn tất */}
             <button
               onClick={handleExportPDF}
-              disabled={exportStatus === 'loading'}
+              disabled={exportStatus === 'loading' || (!showSuccess && sendStatus !== 'success')}
               className={cn(
-                'inline-flex items-center gap-2 px-6 py-3 rounded-xl font-medium transition-all border-2 border-black',
+                'w-full inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-medium transition-all border-2 text-sm sm:text-base',
                 exportStatus === 'success' 
                   ? 'bg-green-600 text-white border-green-600' 
-                  : 'bg-white text-black hover:bg-gray-100'
+                  : (showSuccess || sendStatus === 'success')
+                  ? 'bg-white text-black border-black hover:bg-gray-100'
+                  : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
               )}
             >
               {exportStatus === 'loading' ? (
@@ -660,10 +661,19 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
               ) : (
                 <>
                   <FileDown className="w-4 h-4" />
-                  Xuất PDF
+                  Lưu PDF
                 </>
               )}
             </button>
+          </div>
+          
+          {/* Hint text */}
+          {!showSuccess && sendStatus !== 'success' && (
+            <p className="text-xs text-gray-400 text-center mt-3">
+              {canSend() 
+                ? 'Nhấn "Hoàn tất & Gửi" để mở khóa nút Lưu PDF'
+                : 'Vui lòng ký xác nhận trước để tiếp tục'}
+            </p>
           )}
         </div>
       </div>
