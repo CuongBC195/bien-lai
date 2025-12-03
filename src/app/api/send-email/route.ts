@@ -64,6 +64,33 @@ function getField(receiptInfo: Record<string, unknown> | undefined, fieldId: str
   return value?.toString() || '';
 }
 
+// Helper: Build email rows for all dynamic fields
+function buildFieldRows(receiptInfo: Record<string, unknown> | undefined): string {
+  if (!receiptInfo) return '';
+  
+  // If new format with fields array
+  if (Array.isArray(receiptInfo.fields)) {
+    return receiptInfo.fields.map((field: { id: string; label: string; value: string; type: string }) => {
+      if (!field.value) return '';
+      
+      if (field.type === 'money') {
+        const amount = parseInt(field.value.replace(/\D/g, '')) || 0;
+        return `<tr style="background: #faf6eb;"><td style="padding: 12px 8px; color: #2a2520; font-weight: bold;">${field.label}</td><td style="padding: 12px 8px; font-weight: bold; color: #b8963e; font-size: 18px;">${formatCurrency(amount)}</td></tr>`;
+      }
+      
+      // For textarea or text fields
+      const style = field.type === 'textarea' 
+        ? 'padding: 8px 0; color: #2a2520; white-space: pre-wrap;'
+        : 'padding: 8px 0; color: #2a2520;';
+      
+      return `<tr><td style="padding: 8px 0; color: #8a8279; vertical-align: top;">${field.label}</td><td style="${style}">${field.value}</td></tr>`;
+    }).filter(Boolean).join('');
+  }
+  
+  // Legacy format - return empty (handled separately in old code path)
+  return '';
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: SendEmailRequest = await request.json();
@@ -117,6 +144,10 @@ export async function POST(request: NextRequest) {
       
       const senderName = donViNguoiNhan || 'Biên nhận điện tử';
       
+      // Check if using new format with dynamic fields
+      const isNewFormat = receiptInfo && Array.isArray(receiptInfo.fields);
+      const dynamicFieldRows = isNewFormat ? buildFieldRows(receiptInfo) : '';
+      
       const emailHtml = `
         <!DOCTYPE html>
         <html>
@@ -151,12 +182,14 @@ export async function POST(request: NextRequest) {
                   Thông tin biên nhận
                 </h3>
                 <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                  ${isNewFormat ? dynamicFieldRows : `
                   ${hoTenNguoiNhan ? `<tr><td style="padding: 8px 0; color: #8a8279; width: 130px;">Người nhận tiền</td><td style="padding: 8px 0; color: #2a2520; font-weight: bold;">${hoTenNguoiNhan}</td></tr>` : ''}
                   ${donViNguoiNhan ? `<tr><td style="padding: 8px 0; color: #8a8279;">Đơn vị</td><td style="padding: 8px 0; color: #2a2520;">${donViNguoiNhan}</td></tr>` : ''}
                   ${hoTenNguoiGui ? `<tr><td style="padding: 8px 0; color: #8a8279;">Người gửi tiền</td><td style="padding: 8px 0; color: #2a2520; font-weight: bold;">${hoTenNguoiGui}</td></tr>` : ''}
-                  ${donViNguoiGui ? `<tr><td style="padding: 8px 0; color: #8a8279;">Đơn vị</td><td style="padding: 8px 0; color: #2a2520;">${donViNguoiGui}</td></tr>` : ''}
-                  ${lyDoNop ? `<tr><td style="padding: 8px 0; color: #8a8279;">Lý do</td><td style="padding: 8px 0; color: #2a2520;">${lyDoNop}</td></tr>` : ''}
+                  ${hoTenNguoiGui ? `<tr><td style="padding: 8px 0; color: #8a8279;">Đơn vị</td><td style="padding: 8px 0; color: #2a2520;">${donViNguoiGui}</td></tr>` : ''}
+                  ${lyDoNop ? `<tr><td style="padding: 8px 0; color: #8a8279; vertical-align: top;">Lý do</td><td style="padding: 8px 0; color: #2a2520; white-space: pre-wrap;">${lyDoNop}</td></tr>` : ''}
                   ${soTien ? `<tr style="background: #faf6eb;"><td style="padding: 12px 8px; color: #2a2520; font-weight: bold;">Số tiền</td><td style="padding: 12px 8px; font-weight: bold; color: #b8963e; font-size: 18px;">${formatCurrency(soTien)}</td></tr>` : ''}
+                  `}
                 </table>
               </div>
               ` : ''}

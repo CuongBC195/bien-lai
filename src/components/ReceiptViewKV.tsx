@@ -543,16 +543,27 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
           {/* Body - Dynamic Fields */}
           <div className="space-y-3 sm:space-y-5 text-sm sm:text-base leading-relaxed">
             {receiptData.fields.map((field) => (
-              <div key={field.id} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2">
+              <div key={field.id} className={cn(
+                "flex gap-1 sm:gap-2",
+                field.type === 'textarea' 
+                  ? "flex-col" 
+                  : "flex-col sm:flex-row sm:items-baseline"
+              )}>
                 <span className="whitespace-nowrap text-gray-600 sm:text-black text-xs sm:text-base">{field.label}:</span>
-                <span className={cn(
-                  "flex-1 border-b border-dotted border-gray-400 px-2 py-1",
-                  field.type === 'money' && "font-semibold"
-                )}>
-                  {field.type === 'money' 
-                    ? formatNumber(parseInt(field.value.replace(/\D/g, '')) || 0)
-                    : (field.value || '...')}
-                </span>
+                {field.type === 'textarea' ? (
+                  <div className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 whitespace-pre-wrap break-words min-h-[1.5em]">
+                    {field.value || '...'}
+                  </div>
+                ) : (
+                  <span className={cn(
+                    "flex-1 border-b border-dotted border-gray-400 px-2 py-1",
+                    field.type === 'money' && "font-semibold"
+                  )}>
+                    {field.type === 'money' 
+                      ? formatNumber(parseInt(field.value.replace(/\D/g, '')) || 0)
+                      : (field.value || '...')}
+                  </span>
+                )}
                 {field.type === 'money' && <span className="whitespace-nowrap">VNĐ</span>}
               </div>
             ))}
