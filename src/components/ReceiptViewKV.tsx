@@ -11,7 +11,7 @@ import {
   Send,
   FileText
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 import SignatureModal from './SignatureModal';
 import { ToastContainer, useToast } from './Toast';
@@ -240,6 +240,24 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
     return '';
   };
 
+  // Helper function to capture receipt as image using html-to-image
+  // This library handles modern CSS colors (lab, oklch) better than html2canvas
+  const captureReceiptAsCanvas = async (): Promise<string | null> => {
+    if (!receiptRef.current) return null;
+
+    try {
+      const dataUrl = await toPng(receiptRef.current, {
+        quality: 1.0,
+        backgroundColor: '#ffffff',
+        pixelRatio: 2, // High resolution for PDF
+      });
+      return dataUrl;
+    } catch (error) {
+      console.error('Capture error:', error);
+      return null;
+    }
+  };
+
   // Export PDF
   const exportPDF = useCallback(async (): Promise<Blob | null> => {
     if (!receiptRef.current) return null;
@@ -247,18 +265,9 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
     try {
       setExportStatus('loading');
       
-      const canvas = await html2canvas(receiptRef.current, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        ignoreElements: (element) => {
-          return element.classList?.contains('print:hidden');
-        },
-      });
+      const imgData = await captureReceiptAsCanvas();
+      if (!imgData) throw new Error('Failed to capture receipt');
 
-      const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -267,13 +276,24 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
 
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
-      const imgX = (pdfWidth - imgWidth * ratio) / 2;
-      const imgY = 10;
+      
+      // Calculate dimensions based on the actual element
+      const elementWidth = receiptRef.current.offsetWidth;
+      const elementHeight = receiptRef.current.offsetHeight;
+      
+      // We want to fit the width to PDF width (minus margins if any, but here we use full width or slightly less)
+      // The receipt is 210mm wide in CSS, which matches A4 width.
+      const imgWidth = pdfWidth; 
+      const imgHeight = (elementHeight / elementWidth) * imgWidth;
 
-      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+      // If height is larger than page, we might need multiple pages, but for now let's just scale or let it be
+      // For a simple receipt, it usually fits. If not, we can scale down.
+      
+      // Center it if it's smaller (though we set it to pdfWidth)
+      const imgX = 0;
+      const imgY = 0;
+
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth, imgHeight);
       
       setExportStatus('success');
       setTimeout(() => setExportStatus('idle'), 2000);
@@ -335,45 +355,44 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
         throw new Error(signData.error);
       }
 
-      // Wait for state update
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Capture receipt image
-      if (receiptRef.current) {
-        const canvas = await html2canvas(receiptRef.current, {
-          scale: 2,
-          backgroundColor: '#ffffff',
-          useCORS: true,
-          ignoreElements: (element) => element.classList?.contains('print:hidden'),
-        });
-        const imageBase64 = canvas.toDataURL('image/jpeg', 0.8);
-
-        // Build receipt data for notification
-        const receiptInfo = {
-          hoTenNguoiNhan: getFieldValue('hoTenNguoiNhan'),
-          hoTenNguoiGui: getFieldValue('hoTenNguoiGui'),
-          donViNguoiNhan: getFieldValue('donViNguoiNhan'),
-          donViNguoiGui: getFieldValue('donViNguoiGui'),
-          lyDoNop: getFieldValue('lyDoNop'),
-          soTien: getSoTien(),
-          bangChu: numberToVietnamese(getSoTien()),
-          ngayThang: receiptData?.ngayThang || '',
-          diaDiem: receiptData?.diaDiem || '',
-        };
-
-        // Send notification (Email + Telegram)
-        await fetch('/api/send-receipt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageBase64,
-            receiptData: receiptInfo,
-          }),
-        });
-      }
-
+      // Mark as success first - user has signed successfully
       setSendStatus('success');
       setShowSuccess(true);
+
+      // Then try to send notification in background (don't block user)
+      try {
+        if (receiptRef.current) {
+          const imageBase64 = await captureReceiptAsCanvas();
+          if (!imageBase64) throw new Error('Failed to capture receipt');
+          
+          // Build receipt data for notification
+          const receiptInfo = {
+            hoTenNguoiNhan: getFieldValue('hoTenNguoiNhan'),
+            hoTenNguoiGui: getFieldValue('hoTenNguoiGui'),
+            donViNguoiNhan: getFieldValue('donViNguoiNhan'),
+            donViNguoiGui: getFieldValue('donViNguoiGui'),
+            lyDoNop: getFieldValue('lyDoNop'),
+            soTien: getSoTien(),
+            bangChu: numberToVietnamese(getSoTien()),
+            ngayThang: receiptData?.ngayThang || '',
+            diaDiem: receiptData?.diaDiem || '',
+          };
+
+          // Send notification (Email + Telegram) - fire and forget
+          fetch('/api/send-receipt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              imageBase64,
+              receiptData: receiptInfo,
+            }),
+          }).catch(err => console.error('Notification send error:', err));
+        }
+      } catch (notifyError) {
+        // Notification failed but signature was saved - don't show error to user
+        console.error('Error sending notification:', notifyError);
+      }
+
     } catch (error) {
       console.error('Error signing:', error);
       setSendStatus('error');
@@ -515,6 +534,7 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
         {/* Receipt Paper */}
         <div 
           ref={receiptRef}
+          data-receipt-capture="true"
           className="bg-white shadow-2xl mx-auto rounded-lg w-full max-w-[210mm]"
           style={{
             minHeight: 'auto',

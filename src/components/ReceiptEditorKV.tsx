@@ -21,7 +21,7 @@ import {
   GripVertical,
   Edit3
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 import SignatureModal from './SignatureModal';
 import { ToastContainer, useToast } from './Toast';
@@ -289,6 +289,23 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
     }
   };
 
+  // Helper function to capture receipt as image using html-to-image
+  const captureReceiptAsCanvas = async (): Promise<string | null> => {
+    if (!receiptRef.current) return null;
+
+    try {
+      const dataUrl = await toPng(receiptRef.current, {
+        quality: 1.0,
+        backgroundColor: '#ffffff',
+        pixelRatio: 2,
+      });
+      return dataUrl;
+    } catch (error) {
+      console.error('Capture error:', error);
+      return null;
+    }
+  };
+
   // Export PDF
   const exportPDF = useCallback(async (): Promise<Blob | null> => {
     if (!receiptRef.current) return null;
@@ -296,18 +313,9 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
     try {
       setExportStatus('loading');
       
-      const canvas = await html2canvas(receiptRef.current, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        ignoreElements: (element) => {
-          return element.classList?.contains('no-print');
-        },
-      });
+      const imgData = await captureReceiptAsCanvas();
+      if (!imgData) throw new Error('Failed to capture receipt');
 
-      const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -316,13 +324,18 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
 
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
-      const imgX = (pdfWidth - imgWidth * ratio) / 2;
-      const imgY = 10;
+      
+      // Calculate dimensions based on the actual element
+      const elementWidth = receiptRef.current.offsetWidth;
+      const elementHeight = receiptRef.current.offsetHeight;
+      
+      const imgWidth = pdfWidth; 
+      const imgHeight = (elementHeight / elementWidth) * imgWidth;
+      
+      const imgX = 0;
+      const imgY = 0;
 
-      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth * ratio, imgHeight * ratio);
+      pdf.addImage(imgData, 'PNG', imgX, imgY, imgWidth, imgHeight);
       
       setExportStatus('success');
       setTimeout(() => setExportStatus('idle'), 2000);
@@ -776,6 +789,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         {/* Receipt Paper */}
         <div 
           ref={receiptRef}
+          data-receipt-capture
           className="bg-white shadow-2xl mx-auto rounded-lg w-full max-w-[210mm]"
           style={{
             minHeight: 'auto',
