@@ -375,19 +375,23 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
     setSendingEmail(true);
     try {
       let receiptId = savedReceiptId;
+      
+      // Build receiptData for save/email
+      const currentReceiptData: ReceiptData = {
+        title,
+        fields,
+        ngayThang,
+        diaDiem,
+        signatureNguoiNhan,
+        signatureNguoiGui,
+      };
+      
       if (!receiptId) {
-        const receiptData: ReceiptData = {
-          title,
-          fields,
-          ngayThang,
-          diaDiem,
-          signatureNguoiNhan,
-          signatureNguoiGui,
-        };
+        // Create receipt first if not saved
         const createRes = await fetch('/api/receipts/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ info: receiptData }),
+          body: JSON.stringify({ info: currentReceiptData }),
         });
         const createData = await createRes.json();
         if (!createData.success) {
@@ -397,14 +401,21 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         setSavedReceiptId(receiptId);
       }
 
-      const signingUrl = `${window.location.origin}/?id=${receiptId}`;
-      const res = await fetch('/api/send-invitation', {
+      const signUrl = `${window.location.origin}/?id=${receiptId}`;
+      const receiptName = hoTenNguoiNhan || 'N/A';
+      
+      const res = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerEmail,
-          customerName: hoTenNguoiGui,
-          signingUrl,
+          to: customerEmail,
+          subject: `Biên nhận tiền - ${receiptName}`,
+          receiptId,
+          receiptInfo: currentReceiptData,
+          signUrl,
+          // Pass signature status
+          signatureNguoiNhan,
+          signatureNguoiGui,
         }),
       });
 
@@ -414,7 +425,7 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         setShowEmailPanel(false);
         setCustomerEmail('');
       } else {
-        throw new Error(data.error);
+        showToast(data.error || 'Gửi email thất bại', 'error');
       }
     } catch (error) {
       console.error('Error sending email:', error);

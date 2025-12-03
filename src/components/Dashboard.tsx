@@ -222,6 +222,11 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     try {
       const url = `${window.location.origin}/?id=${selectedReceiptForEmail.id}`;
       const receiptName = getReceiptField(selectedReceiptForEmail, 'hoTenNguoiNhan') || 'N/A';
+      
+      // Get signature status to determine who needs to sign
+      const sigNhan = selectedReceiptForEmail.signatureNguoiNhan || selectedReceiptForEmail.data?.signatureNguoiNhan;
+      const sigGui = selectedReceiptForEmail.signatureNguoiGui || selectedReceiptForEmail.data?.signatureNguoiGui;
+      
       const res = await fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -231,6 +236,9 @@ export default function Dashboard({ onLogout }: DashboardProps) {
           receiptId: selectedReceiptForEmail.id,
           receiptInfo: selectedReceiptForEmail.info || selectedReceiptForEmail.data,
           signUrl: url,
+          // Pass signature status
+          signatureNguoiNhan: sigNhan,
+          signatureNguoiGui: sigGui,
         }),
       });
 
