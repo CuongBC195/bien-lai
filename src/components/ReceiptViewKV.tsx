@@ -12,8 +12,9 @@ import {
   FileText
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
+import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-import SignatureModal from './SignatureModal';
+import SignatureModal, { SignatureResult } from './SignatureModal';
 import { ToastContainer, useToast } from './Toast';
 import { 
   numberToVietnamese, 
@@ -57,6 +58,7 @@ interface Receipt {
   // Support both old and new format
   info?: LegacyReceiptInfo;
   data?: ReceiptData;
+  // Signature base64 previews
   signatureNguoiNhan?: string;
   signatureNguoiGui?: string;
   status: 'pending' | 'signed';
@@ -87,7 +89,7 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [signatureTarget, setSignatureTarget] = useState<SignatureTarget>(null);
   
-  // Local signature state
+  // Local signature state - preview images for display
   const [signatureNguoiNhan, setSignatureNguoiNhan] = useState<string>('');
   const [signatureNguoiGui, setSignatureNguoiGui] = useState<string>('');
   
@@ -157,28 +159,32 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
           }
           setReceiptData(convertedData);
           
-          // Load existing signatures
+          // Load existing signatures - check multiple sources
+          // Priority: receipt.signatureNguoiX > receipt.data.signatureNguoiX
           const sigNhan = r.signatureNguoiNhan || r.data?.signatureNguoiNhan || '';
           const sigGui = r.signatureNguoiGui || r.data?.signatureNguoiGui || '';
-          setSignatureNguoiNhan(sigNhan);
-          setSignatureNguoiGui(sigGui);
           
-          // Determine which signature is missing
+          // Check if signatures exist (must be base64 data URL)
           const hasNhan = sigNhan && sigNhan.startsWith('data:');
           const hasGui = sigGui && sigGui.startsWith('data:');
           
+          // Store signatures for display
+          if (hasNhan) setSignatureNguoiNhan(sigNhan);
+          if (hasGui) setSignatureNguoiGui(sigGui);
+          
+          // Determine what signature is missing
           if (r.status === 'signed' || (hasNhan && hasGui)) {
             // Fully signed
             setShowSuccess(true);
             setMissingSignature(null);
           } else if (!hasNhan && !hasGui) {
-            // Both missing - default to nguoiGui (sender)
+            // Both missing - default to nguoiGui (sender typically signs)
             setMissingSignature('nguoiGui');
           } else if (!hasNhan) {
-            // Missing nguoiNhan
+            // Missing nguoiNhan (admin didn't sign as receiver)
             setMissingSignature('nguoiNhan');
           } else {
-            // Missing nguoiGui
+            // Missing nguoiGui (customer needs to sign as sender)
             setMissingSignature('nguoiGui');
           }
         } else {
@@ -201,12 +207,13 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
     setIsSignatureModalOpen(true);
   };
 
-  // Apply signature
-  const handleApplySignature = (sig: string) => {
+  // Apply signature - receives SignatureResult from modal
+  const handleApplySignature = (result: SignatureResult) => {
+    // Just store the preview image for display - client will capture full receipt image
     if (signatureTarget === 'nguoiNhan') {
-      setSignatureNguoiNhan(sig);
+      setSignatureNguoiNhan(result.previewDataUrl);
     } else if (signatureTarget === 'nguoiGui') {
-      setSignatureNguoiGui(sig);
+      setSignatureNguoiGui(result.previewDataUrl);
     }
     setIsSignatureModalOpen(false);
   };
@@ -240,21 +247,67 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
     return '';
   };
 
-  // Helper function to capture receipt as image using html-to-image
-  // This library handles modern CSS colors (lab, oklch) better than html2canvas
+  // Detect Safari browser
+  const isSafari = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    const ua = navigator.userAgent.toLowerCase();
+    return ua.includes('safari') && !ua.includes('chrome') && !ua.includes('android');
+  };
+
+  // Helper function to capture receipt as image
+  // Uses html2canvas for Safari (more compatible) and html-to-image for others (faster)
   const captureReceiptAsCanvas = async (): Promise<string | null> => {
     if (!receiptRef.current) return null;
 
+    const element = receiptRef.current;
+
+    // Use html2canvas for Safari - it handles images better
+    if (isSafari()) {
+      try {
+        console.log('Using html2canvas for Safari...');
+        const canvas = await html2canvas(element, {
+          scale: 2,
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+        });
+        return canvas.toDataURL('image/png', 1.0);
+      } catch (error) {
+        console.error('html2canvas error:', error);
+        return null;
+      }
+    }
+
+    // Use html-to-image for other browsers (faster)
     try {
-      const dataUrl = await toPng(receiptRef.current, {
+      const dataUrl = await toPng(element, {
         quality: 1.0,
         backgroundColor: '#ffffff',
-        pixelRatio: 2, // High resolution for PDF
+        pixelRatio: 2,
+        cacheBust: true,
+        filter: (node: HTMLElement) => {
+          if (node.classList?.contains('print:hidden')) return false;
+          return true;
+        },
       });
       return dataUrl;
     } catch (error) {
-      console.error('Capture error:', error);
-      return null;
+      console.error('html-to-image error, trying html2canvas fallback...', error);
+      // Fallback to html2canvas
+      try {
+        const canvas = await html2canvas(element, {
+          scale: 2,
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+        });
+        return canvas.toDataURL('image/png', 1.0);
+      } catch (fallbackError) {
+        console.error('html2canvas fallback error:', fallbackError);
+        return null;
+      }
     }
   };
 
@@ -321,7 +374,7 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
     }
   };
 
-  // Sign and send
+  // Sign and send - capture image client-side and send to server
   const handleSignAndSend = async () => {
     if (!canSend()) {
       showToast(`Vui lòng ký xác nhận tại ô "${getMissingLabel()}" trước khi gửi!`, 'error');
@@ -332,22 +385,26 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
     setSendStatus('loading');
 
     try {
-      // Prepare signature data
-      const signatureData: { id: string; signatureNguoiNhan?: string; signatureNguoiGui?: string } = {
-        id: receipt.id,
-      };
-      
-      if (missingSignature === 'nguoiNhan') {
-        signatureData.signatureNguoiNhan = signatureNguoiNhan;
-      } else if (missingSignature === 'nguoiGui') {
-        signatureData.signatureNguoiGui = signatureNguoiGui;
+      // Step 1: Capture the receipt image with all signatures (client-side)
+      const receiptImageDataUrl = await captureReceiptAsCanvas();
+      if (!receiptImageDataUrl) {
+        throw new Error('Không thể capture hình ảnh biên lai');
       }
 
-      // Update signature in database
+      // Step 2: Send to server with the captured image
+      // Server will just save signature status and forward the image to Email/Telegram
+      const payload = {
+        id: receipt.id,
+        receiptImage: receiptImageDataUrl, // Base64 PNG image of the full receipt
+        // Also send signature preview for storage (for display purposes)
+        signatureNguoiNhan: missingSignature === 'nguoiNhan' ? signatureNguoiNhan : undefined,
+        signatureNguoiGui: missingSignature === 'nguoiGui' ? signatureNguoiGui : undefined,
+      };
+
       const signRes = await fetch('/api/receipts/sign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(signatureData),
+        body: JSON.stringify(payload),
       });
 
       const signData = await signRes.json();
@@ -355,46 +412,13 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
         throw new Error(signData.error);
       }
 
-      // Mark as success first - user has signed successfully
+      // Mark as success
       setSendStatus('success');
       setShowSuccess(true);
 
-      // Then try to send notification in background (don't block user)
-      try {
-        if (receiptRef.current) {
-          const imageBase64 = await captureReceiptAsCanvas();
-          if (!imageBase64) throw new Error('Failed to capture receipt');
-          
-          // Build receipt data for notification
-          const receiptInfo = {
-            hoTenNguoiNhan: getFieldValue('hoTenNguoiNhan'),
-            hoTenNguoiGui: getFieldValue('hoTenNguoiGui'),
-            donViNguoiNhan: getFieldValue('donViNguoiNhan'),
-            donViNguoiGui: getFieldValue('donViNguoiGui'),
-            lyDoNop: getFieldValue('lyDoNop'),
-            soTien: getSoTien(),
-            bangChu: numberToVietnamese(getSoTien()),
-            ngayThang: receiptData?.ngayThang || '',
-            diaDiem: receiptData?.diaDiem || '',
-          };
-
-          // Send notification (Email + Telegram) - fire and forget
-          fetch('/api/send-receipt', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              imageBase64,
-              receiptData: receiptInfo,
-            }),
-          }).catch(err => console.error('Notification send error:', err));
-        }
-      } catch (notifyError) {
-        // Notification failed but signature was saved - don't show error to user
-        console.error('Error sending notification:', notifyError);
-      }
-
     } catch (error) {
       console.error('Error signing:', error);
+      showToast(error instanceof Error ? error.message : 'Có lỗi xảy ra', 'error');
       setSendStatus('error');
       setTimeout(() => setSendStatus('idle'), 2000);
     }
@@ -451,8 +475,8 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
 
     return (
       <div>
-        <p className="font-bold mb-2">{label}</p>
-        <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
+        <p className="font-bold mb-2" style={{ color: '#000000' }}>{label}</p>
+        <p className="text-sm italic mb-4" style={{ color: '#6b7280' }}>(Ký và ghi rõ họ tên)</p>
         
         <div className="min-h-[100px] flex flex-col items-center justify-center">
           {hasSig ? (
@@ -461,7 +485,7 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
                 src={signature} 
                 alt={`Chữ ký ${label.toLowerCase()}`} 
                 className="h-16 w-auto object-contain"
-                style={{ imageRendering: 'auto', minWidth: '80px' }}
+                style={{ imageRendering: 'auto', minWidth: '80px', maxWidth: '150px' }}
               />
               {isMissing && !showSuccess && (
                 <button
@@ -482,11 +506,14 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
               Ký xác nhận
             </button>
           ) : (
-            <span className="text-gray-400 italic">Chưa ký</span>
+            <span className="italic" style={{ color: '#9ca3af' }}>Chưa ký</span>
           )}
         </div>
 
-        <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
+        <p 
+          className="pt-2 inline-block px-8 mt-2"
+          style={{ borderTop: '1px dotted #9ca3af', color: '#000000' }}
+        >
           {nameValue || '...........................'}
         </p>
       </div>
@@ -535,27 +562,33 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
         <div 
           ref={receiptRef}
           data-receipt-capture="true"
-          className="bg-white shadow-2xl mx-auto rounded-lg w-full max-w-[210mm]"
+          className="bg-white shadow-2xl rounded-lg"
           style={{
+            width: '100%',
+            maxWidth: '210mm',
+            margin: '0 auto',
             minHeight: 'auto',
             padding: 'clamp(16px, 5vw, 25mm) clamp(12px, 4vw, 25mm)',
             fontFamily: '"Times New Roman", Tinos, serif',
+            boxSizing: 'border-box',
+            backgroundColor: '#ffffff',
+            color: '#000000',
           }}
         >
           {/* Header */}
           <header className="text-center mb-4 sm:mb-8">
-            <h2 className="text-sm sm:text-base font-bold tracking-wide">
+            <h2 className="text-sm sm:text-base font-bold tracking-wide" style={{ color: '#000000' }}>
               CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
             </h2>
-            <p className="text-sm sm:text-base mt-1">
+            <p className="text-sm sm:text-base mt-1" style={{ color: '#000000' }}>
               <span style={{ textDecoration: 'underline', textUnderlineOffset: '4px' }}>
                 Độc lập - Tự do - Hạnh phúc
               </span>
             </p>
-            <div className="mt-4 sm:mt-8 text-gray-400 text-xs sm:text-base">
+            <div className="mt-4 sm:mt-8 text-xs sm:text-base" style={{ color: '#9ca3af' }}>
               -----------------------
             </div>
-            <h1 className="text-lg sm:text-2xl font-bold mt-4 sm:mt-6 tracking-wider">
+            <h1 className="text-lg sm:text-2xl font-bold mt-4 sm:mt-6 tracking-wider" style={{ color: '#000000' }}>
               {receiptData.title || 'GIẤY BIÊN NHẬN TIỀN'}
             </h1>
           </header>
@@ -569,29 +602,40 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
                   ? "flex-col" 
                   : "flex-col sm:flex-row sm:items-baseline"
               )}>
-                <span className="whitespace-nowrap text-gray-600 sm:text-black text-xs sm:text-base">{field.label}:</span>
+                <span 
+                  className="whitespace-nowrap text-xs sm:text-base"
+                  style={{ color: '#4b5563' }}
+                >
+                  {field.label}:
+                </span>
                 {field.type === 'textarea' ? (
-                  <div className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 whitespace-pre-wrap break-words min-h-[1.5em]">
+                  <div 
+                    className="flex-1 px-2 py-1 whitespace-pre-wrap break-words min-h-[1.5em]"
+                    style={{ borderBottom: '1px dotted #9ca3af', color: '#000000' }}
+                  >
                     {field.value || '...'}
                   </div>
                 ) : (
-                  <span className={cn(
-                    "flex-1 border-b border-dotted border-gray-400 px-2 py-1",
-                    field.type === 'money' && "font-semibold"
-                  )}>
+                  <span 
+                    className={cn("flex-1 px-2 py-1", field.type === 'money' && "font-semibold")}
+                    style={{ borderBottom: '1px dotted #9ca3af', color: '#000000' }}
+                  >
                     {field.type === 'money' 
                       ? formatNumber(parseInt(field.value.replace(/\D/g, '')) || 0)
                       : (field.value || '...')}
                   </span>
                 )}
-                {field.type === 'money' && <span className="whitespace-nowrap">VNĐ</span>}
+                {field.type === 'money' && <span className="whitespace-nowrap" style={{ color: '#000000' }}>VNĐ</span>}
               </div>
             ))}
             
             {/* Bằng chữ - auto calculate from soTien */}
             <div className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2">
-              <span className="whitespace-nowrap text-gray-600 sm:text-black text-xs sm:text-base">Bằng chữ:</span>
-              <span className="flex-1 border-b border-dotted border-gray-400 px-2 py-1 italic text-gray-700">
+              <span className="whitespace-nowrap text-xs sm:text-base" style={{ color: '#4b5563' }}>Bằng chữ:</span>
+              <span 
+                className="flex-1 px-2 py-1 italic"
+                style={{ borderBottom: '1px dotted #9ca3af', color: '#374151' }}
+              >
                 {numberToVietnamese(getSoTien())}
               </span>
             </div>
@@ -599,12 +643,12 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
 
           {/* Footer with Signatures */}
           <footer className="mt-8 sm:mt-16">
-            <div className="text-right italic mb-6 sm:mb-10 text-sm sm:text-base">
+            <div className="text-right italic mb-6 sm:mb-10 text-sm sm:text-base" style={{ color: '#000000' }}>
               <span>{receiptData.diaDiem || 'TP. Cần Thơ'}, </span>
               <span>{receiptData.ngayThang || formatVietnameseDate(new Date())}</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 text-center">
+            <div className="grid grid-cols-2 gap-4 sm:gap-8 text-center">
               {/* Người gửi tiền */}
               {renderSignatureBox(
                 'nguoiGui',

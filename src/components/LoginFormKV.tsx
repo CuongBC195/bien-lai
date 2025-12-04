@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Lock, Eye, EyeOff, Loader2, FileText } from 'lucide-react';
+import { Lock, Eye, EyeOff, Loader2, FileText, AlertCircle } from 'lucide-react';
 
 interface LoginFormKVProps {
   onLogin: () => void;
@@ -18,56 +18,62 @@ export default function LoginFormKV({ onLogin }: LoginFormKVProps) {
     setLoading(true);
     setError('');
 
-    // Simulate slight delay for UX
-    await new Promise(resolve => setTimeout(resolve, 300));
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
 
-    const adminPassword = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || 'admin123';
-    
-    if (password === adminPassword) {
-      // Store login state
-      sessionStorage.setItem('admin_logged_in', 'true');
-      onLogin();
-    } else {
-      setError('Mật khẩu không đúng');
+      const data = await response.json();
+
+      if (data.success) {
+        onLogin();
+      } else {
+        setError(data.error || 'Mật khẩu không đúng');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Có lỗi xảy ra, vui lòng thử lại');
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-black flex items-center justify-center p-4">
-      <div className="glass-dark rounded-2xl p-8 w-full max-w-md">
+    <div className="min-h-screen bg-gradient-glass flex items-center justify-center p-4">
+      <div className="glass-card rounded-3xl p-8 w-full max-w-md shadow-2xl">
         {/* Logo/Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-black/90 rounded-2xl mb-4 shadow-lg">
             <FileText className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-light text-white mb-2">E-Receipt Admin</h1>
-          <p className="text-gray-400 text-sm">
-            Đăng nhập để quản lý biên lai
-          </p>
+          <h1 className="text-2xl font-bold text-gray-900">E-Receipt Admin</h1>
+          <p className="text-gray-500 mt-2">Đăng nhập để quản lý biên lai</p>
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm text-gray-400 mb-2">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
               Mật khẩu quản trị
             </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+              <Lock className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type={showPassword ? 'text' : 'password'}
+                id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Nhập mật khẩu..."
-                className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-12 py-3 text-white placeholder:text-gray-500 focus:outline-none focus:border-white/30 transition-colors"
+                className="w-full pl-12 pr-12 py-3.5 glass-input rounded-xl"
                 autoFocus
+                required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors"
+                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
               >
                 {showPassword ? (
                   <EyeOff className="w-5 h-5" />
@@ -79,20 +85,21 @@ export default function LoginFormKV({ onLogin }: LoginFormKVProps) {
           </div>
 
           {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-              <p className="text-red-400 text-sm text-center">{error}</p>
+            <div className="flex items-center gap-2 text-red-700 bg-red-50 p-4 rounded-xl border border-red-100">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <span className="text-sm font-medium">{error}</span>
             </div>
           )}
 
           <button
             type="submit"
             disabled={loading || !password}
-            className="w-full bg-white text-black py-3 rounded-xl hover:bg-gray-200 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full glass-button py-3.5 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {loading ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Đang đăng nhập...
+                Đang xác thực...
               </>
             ) : (
               'Đăng nhập'
@@ -101,9 +108,6 @@ export default function LoginFormKV({ onLogin }: LoginFormKVProps) {
         </form>
 
         {/* Footer */}
-        <p className="text-center text-gray-500 text-xs mt-8">
-          Powered by Vercel KV (Redis)
-        </p>
       </div>
     </div>
   );

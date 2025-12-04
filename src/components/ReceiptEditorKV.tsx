@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
-import SignatureModal from './SignatureModal';
+import SignatureModal, { SignatureResult, SignaturePoint } from './SignatureModal';
 import { ToastContainer, useToast } from './Toast';
 import { 
   numberToVietnamese, 
@@ -41,13 +41,24 @@ interface DynamicField {
   type: 'text' | 'textarea' | 'money';
 }
 
+// Signature data for server-side rendering
+interface SignatureData {
+  type: 'draw' | 'type';
+  signaturePoints?: SignaturePoint[][] | null;
+  typedText?: string;
+  fontFamily?: string;
+  color?: string;
+}
+
 interface ReceiptData {
   title: string;
   fields: DynamicField[];
   ngayThang: string;
   diaDiem: string;
-  signatureNguoiNhan?: string;
-  signatureNguoiGui?: string;
+  signatureNguoiNhan?: string;  // preview base64
+  signatureNguoiGui?: string;   // preview base64
+  signatureDataNguoiNhan?: SignatureData;  // actual data for server rendering
+  signatureDataNguoiGui?: SignatureData;   // actual data for server rendering
 }
 
 // Legacy format for backward compatibility
@@ -146,6 +157,13 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
   const [signatureNguoiGui, setSignatureNguoiGui] = useState<string>(
     receipt?.signatureNguoiGui || receiptData?.signatureNguoiGui || ''
   );
+  // Store actual signature data for server-side rendering
+  const [signatureDataNguoiNhan, setSignatureDataNguoiNhan] = useState<SignatureData | null>(
+    receiptData?.signatureDataNguoiNhan || null
+  );
+  const [signatureDataNguoiGui, setSignatureDataNguoiGui] = useState<SignatureData | null>(
+    receiptData?.signatureDataNguoiGui || null
+  );
   const [currentSignatureTarget, setCurrentSignatureTarget] = useState<'nguoiNhan' | 'nguoiGui'>('nguoiNhan');
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
 
@@ -226,12 +244,23 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
     setIsSignatureModalOpen(true);
   };
 
-  // Apply signature
-  const applySignature = (sig: string) => {
+  // Apply signature - receives SignatureResult from modal
+  const applySignature = (result: SignatureResult) => {
+    // Store both preview for display AND actual data for server-side rendering
+    const sigData: SignatureData = {
+      type: result.type,
+      signaturePoints: result.signaturePoints,
+      typedText: result.typedText,
+      fontFamily: result.fontFamily,
+      color: result.color,
+    };
+    
     if (currentSignatureTarget === 'nguoiNhan') {
-      setSignatureNguoiNhan(sig);
+      setSignatureNguoiNhan(result.previewDataUrl);
+      setSignatureDataNguoiNhan(sigData);
     } else {
-      setSignatureNguoiGui(sig);
+      setSignatureNguoiGui(result.previewDataUrl);
+      setSignatureDataNguoiGui(sigData);
     }
   };
 
@@ -246,6 +275,9 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
         diaDiem,
         signatureNguoiNhan,
         signatureNguoiGui,
+        // Include actual signature data for server-side rendering
+        signatureDataNguoiNhan: signatureDataNguoiNhan || undefined,
+        signatureDataNguoiGui: signatureDataNguoiGui || undefined,
       };
 
       // Nếu đã có savedReceiptId (từ Share) hoặc đang edit thì update, không tạo mới
@@ -254,8 +286,8 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
       
       const url = hasExistingId ? '/api/receipts/update' : '/api/receipts/create';
       const body = hasExistingId 
-        ? { id: existingId, info: receiptData }
-        : { info: receiptData };
+        ? { id: existingId, data: receiptData }
+        : { data: receiptData };
 
       const res = await fetch(url, {
         method: 'POST',
@@ -901,20 +933,20 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
               <span>, {ngayThang}</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-8 text-center">
+            <div className="grid grid-cols-2 gap-4 sm:gap-8 text-center">
               {/* Người gửi tiền */}
               <div>
                 <p className="font-bold mb-2 text-sm sm:text-base">Người gửi tiền</p>
-                <p className="text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
+                <p className="text-xs sm:text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
                 
-                <div className="min-h-[100px] flex flex-col items-center justify-center">
+                <div className="min-h-[80px] sm:min-h-[100px] flex flex-col items-center justify-center">
                   {signatureNguoiGui ? (
                     <div className="relative group">
                       <img 
                         src={signatureNguoiGui} 
                         alt="Chữ ký người gửi" 
-                        className="h-16 w-auto object-contain"
-                        style={{ imageRendering: 'auto', minWidth: '80px' }}
+                        className="h-12 sm:h-16 w-auto object-contain"
+                        style={{ imageRendering: 'auto', minWidth: '60px', maxWidth: '120px' }}
                       />
                       <button
                         onClick={() => setSignatureNguoiGui('')}
@@ -927,15 +959,16 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                   ) : (
                     <button
                       onClick={() => openSignatureModal('nguoiGui')}
-                      className="flex items-center gap-2 px-6 py-3 border-2 border-dashed border-gray-400 rounded-xl text-gray-600 hover:border-gray-600 hover:bg-gray-50 transition-colors no-print font-medium"
+                      className="flex items-center gap-1 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 border-2 border-dashed border-gray-400 rounded-xl text-gray-600 hover:border-gray-600 hover:bg-gray-50 transition-colors no-print font-medium text-xs sm:text-base"
                     >
-                      <PenLine className="w-5 h-5" />
-                      Ký tại đây
+                      <PenLine className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <span className="hidden sm:inline">Ký tại đây</span>
+                      <span className="sm:hidden">Ký</span>
                     </button>
                   )}
                 </div>
 
-                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
+                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-4 sm:px-8 mt-2 text-sm sm:text-base">
                   {hoTenNguoiGui || '...........................'}
                 </p>
               </div>
@@ -945,14 +978,14 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                 <p className="font-bold mb-2 text-sm sm:text-base">Người nhận tiền</p>
                 <p className="text-xs sm:text-sm text-gray-500 italic mb-4">(Ký và ghi rõ họ tên)</p>
                 
-                <div className="min-h-[100px] flex flex-col items-center justify-center">
+                <div className="min-h-[80px] sm:min-h-[100px] flex flex-col items-center justify-center">
                   {signatureNguoiNhan ? (
                     <div className="relative group">
                       <img 
                         src={signatureNguoiNhan} 
                         alt="Chữ ký người nhận" 
-                        className="h-16 w-auto object-contain"
-                        style={{ imageRendering: 'auto', minWidth: '80px' }}
+                        className="h-12 sm:h-16 w-auto object-contain"
+                        style={{ imageRendering: 'auto', minWidth: '60px', maxWidth: '120px' }}
                       />
                       <button
                         onClick={() => setSignatureNguoiNhan('')}
@@ -965,15 +998,16 @@ export default function ReceiptEditorKV({ receipt, onSave, onCancel }: ReceiptEd
                   ) : (
                     <button
                       onClick={() => openSignatureModal('nguoiNhan')}
-                      className="flex items-center gap-2 px-6 py-3 border-2 border-dashed border-gray-400 rounded-xl text-gray-600 hover:border-gray-600 hover:bg-gray-50 transition-colors no-print font-medium"
+                      className="flex items-center gap-1 sm:gap-2 px-3 sm:px-6 py-2 sm:py-3 border-2 border-dashed border-gray-400 rounded-xl text-gray-600 hover:border-gray-600 hover:bg-gray-50 transition-colors no-print font-medium text-xs sm:text-base"
                     >
-                      <PenLine className="w-5 h-5" />
-                      Ký tại đây
+                      <PenLine className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <span className="hidden sm:inline">Ký tại đây</span>
+                      <span className="sm:hidden">Ký</span>
                     </button>
                   )}
                 </div>
 
-                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8 mt-2">
+                <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-4 sm:px-8 mt-2 text-sm sm:text-base">
                   {hoTenNguoiNhan || '...........................'}
                 </p>
               </div>

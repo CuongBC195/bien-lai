@@ -5,10 +5,32 @@ import SignatureCanvas from 'react-signature-canvas';
 import { X, PenTool, Type, Eraser, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+// Signature point interface for server-side rendering
+export interface SignaturePoint {
+  x: number;
+  y: number;
+  time: number;
+  color?: string;
+}
+
+// Result type for signature - includes both preview and data for storage
+export interface SignatureResult {
+  // Base64 for local preview only (not stored in DB)
+  previewDataUrl: string;
+  // Points array for server-side rendering (stored in DB)
+  signaturePoints: SignaturePoint[][] | null;
+  // Type of signature
+  type: 'draw' | 'type';
+  // For typed signatures
+  typedText?: string;
+  fontFamily?: string;
+  color?: string;
+}
+
 interface SignatureModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onApply: (signatureDataUrl: string) => void;
+  onApply: (result: SignatureResult) => void;
 }
 
 export interface SignatureModalRef {
@@ -100,24 +122,58 @@ const SignatureModal = forwardRef<SignatureModalRef, SignatureModalProps>(
 
     const handleApply = async () => {
       setErrorMessage(null);
-      let signatureDataUrl = '';
+      let result: SignatureResult;
       
       if (activeTab === 'draw' && signatureRef.current) {
         if (signatureRef.current.isEmpty()) {
           setErrorMessage('Vui lòng ký tên trước khi áp dụng!');
           return;
         }
+        
+        // Get points data for server-side rendering
+        // toData() returns Point[][] (array of strokes, each stroke is array of points)
+        const rawPoints = signatureRef.current.toData();
+        const signaturePoints: SignaturePoint[][] = rawPoints.map(stroke => 
+          stroke.map(point => ({
+            x: point.x,
+            y: point.y,
+            time: point.time || Date.now(),
+            color: penColor
+          }))
+        );
+        
+        // Get preview image for local display
         const original = signatureRef.current.toDataURL('image/png');
-        signatureDataUrl = await compressSignatureAsync(original);
+        const previewDataUrl = await compressSignatureAsync(original);
+        
+        result = {
+          previewDataUrl,
+          signaturePoints,
+          type: 'draw',
+          color: penColor
+        };
       } else if (activeTab === 'type') {
         if (!typedName.trim()) {
           setErrorMessage('Vui lòng nhập tên trước khi áp dụng!');
           return;
         }
-        signatureDataUrl = generateTypedSignature();
+        
+        // For typed signatures, we store the text and font, server generates image
+        const previewDataUrl = generateTypedSignature();
+        
+        result = {
+          previewDataUrl,
+          signaturePoints: null, // No points for typed
+          type: 'type',
+          typedText: typedName.trim(),
+          fontFamily: selectedFont,
+          color: penColor
+        };
+      } else {
+        return;
       }
       
-      onApply(signatureDataUrl);
+      onApply(result);
       onClose();
     };
 

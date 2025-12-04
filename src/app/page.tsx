@@ -3,8 +3,8 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, FileText } from 'lucide-react';
-import LoginForm from '@/components/LoginForm';
-import Dashboard from '@/components/Dashboard';
+import LoginFormKV from '@/components/LoginFormKV';
+import DashboardKV from '@/components/DashboardKV';
 import ReceiptViewKV from '@/components/ReceiptViewKV';
 
 function HomeContent() {
@@ -23,18 +23,32 @@ function HomeContent() {
       return;
     }
 
-    // Priority 2: Check auth status (Admin mode)
-    const loggedIn = sessionStorage.getItem('isLoggedIn') === 'true';
-    setIsLoggedIn(loggedIn);
-    setIsLoading(false);
+    // Priority 2: Check auth status via API (Admin mode)
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/auth/check');
+        const data = await res.json();
+        setIsLoggedIn(data.authenticated);
+      } catch {
+        setIsLoggedIn(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    checkAuth();
   }, [searchParams]);
 
   const handleLoginSuccess = () => {
     setIsLoggedIn(true);
   };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('isLoggedIn');
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
     setIsLoggedIn(false);
   };
 
@@ -62,11 +76,11 @@ function HomeContent() {
 
   // Priority 2: Not logged in - show login form
   if (!isLoggedIn) {
-    return <LoginForm onLoginSuccess={handleLoginSuccess} />;
+    return <LoginFormKV onLogin={handleLoginSuccess} />;
   }
 
   // Priority 3: Logged in - show admin dashboard
-  return <Dashboard onLogout={handleLogout} />;
+  return <DashboardKV onLogout={handleLogout} />;
 }
 
 export default function Home() {

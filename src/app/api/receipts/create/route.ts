@@ -1,19 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createReceipt, ReceiptInfo, ReceiptData, SignaturePoint } from '@/lib/kv';
+import { createReceipt, ReceiptInfo, ReceiptData, SignaturePoint, SignatureData } from '@/lib/kv';
 
 interface CreateReceiptRequest {
   // Support both old and new format
   info?: ReceiptInfo;      // Legacy format
   data?: ReceiptData;      // New format
   signaturePoints?: SignaturePoint[][] | null;
-  signatureNguoiNhan?: string; // Chữ ký người nhận (admin)
-  signatureNguoiGui?: string;  // Chữ ký người gửi (admin)
+  signatureNguoiNhan?: string; // Chữ ký người nhận (admin) - base64 preview
+  signatureNguoiGui?: string;  // Chữ ký người gửi (admin) - base64 preview
+  signatureDataNguoiNhan?: SignatureData; // Actual signature data
+  signatureDataNguoiGui?: SignatureData;  // Actual signature data
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: CreateReceiptRequest = await request.json();
-    const { info, data, signaturePoints, signatureNguoiNhan, signatureNguoiGui } = body;
+    const { info, data, signaturePoints, signatureNguoiNhan, signatureNguoiGui, signatureDataNguoiNhan, signatureDataNguoiGui } = body;
 
     // Need either info (legacy) or data (new format)
     if (!info && !data) {
@@ -25,12 +27,27 @@ export async function POST(request: NextRequest) {
 
     // Use new format if available, otherwise use legacy
     const receiptData = data || info;
+    
+    // Create receipt with base64 previews
     const receipt = await createReceipt(
       receiptData!, 
       signaturePoints, 
       signatureNguoiNhan || data?.signatureNguoiNhan,
       signatureNguoiGui || data?.signatureNguoiGui
     );
+    
+    // If SignatureData was provided, update the receipt with it
+    // (This handles admin signatures created with the new format)
+    if (data?.signatureDataNguoiNhan || data?.signatureDataNguoiGui || signatureDataNguoiNhan || signatureDataNguoiGui) {
+      const { updateReceipt } = await import('@/lib/kv');
+      await updateReceipt(receipt.id, {
+        signatureDataNguoiNhan: signatureDataNguoiNhan || data?.signatureDataNguoiNhan,
+        signatureDataNguoiGui: signatureDataNguoiGui || data?.signatureDataNguoiGui,
+      });
+      // Update local receipt object
+      receipt.signatureDataNguoiNhan = signatureDataNguoiNhan || data?.signatureDataNguoiNhan;
+      receipt.signatureDataNguoiGui = signatureDataNguoiGui || data?.signatureDataNguoiGui;
+    }
 
     // Generate signing URL
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 

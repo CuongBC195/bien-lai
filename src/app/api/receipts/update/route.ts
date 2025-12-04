@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateReceipt, ReceiptInfo, ReceiptData, SignaturePoint } from '@/lib/kv';
+import { updateReceipt, ReceiptInfo, ReceiptData, SignaturePoint, SignatureData } from '@/lib/kv';
 
 interface UpdateReceiptRequest {
   id: string;
@@ -9,13 +9,15 @@ interface UpdateReceiptRequest {
   signaturePoints?: SignaturePoint[][] | null;
   signatureNguoiNhan?: string;
   signatureNguoiGui?: string;
+  signatureDataNguoiNhan?: SignatureData;
+  signatureDataNguoiGui?: SignatureData;
   status?: 'pending' | 'signed';
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: UpdateReceiptRequest = await request.json();
-    const { id, info, data, signatureNguoiNhan, signatureNguoiGui, ...updates } = body;
+    const { id, info, data, signatureNguoiNhan, signatureNguoiGui, signatureDataNguoiNhan, signatureDataNguoiGui, ...updates } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -31,8 +33,23 @@ export async function POST(request: NextRequest) {
       updateData.data = data;
       // Clear legacy info if using new format
       updateData.info = undefined;
+      // Extract signature data to top level for easy access
+      if (data.signatureDataNguoiNhan) {
+        updateData.signatureDataNguoiNhan = data.signatureDataNguoiNhan;
+      }
+      if (data.signatureDataNguoiGui) {
+        updateData.signatureDataNguoiGui = data.signatureDataNguoiGui;
+      }
     } else if (info) {
       updateData.info = info;
+    }
+    
+    // Also handle top-level signature data if passed directly
+    if (signatureDataNguoiNhan !== undefined) {
+      updateData.signatureDataNguoiNhan = signatureDataNguoiNhan;
+    }
+    if (signatureDataNguoiGui !== undefined) {
+      updateData.signatureDataNguoiGui = signatureDataNguoiGui;
     }
     
     if (signatureNguoiNhan !== undefined) {
