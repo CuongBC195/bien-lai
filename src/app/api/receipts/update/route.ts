@@ -1,23 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateReceipt, ReceiptInfo, ReceiptData, SignaturePoint, SignatureData } from '@/lib/kv';
+import { updateReceipt, ReceiptInfo, ReceiptData, DocumentData, SignaturePoint, SignatureData } from '@/lib/kv';
 
 interface UpdateReceiptRequest {
   id: string;
-  // Support both old and new format
+  // Support all formats
   info?: ReceiptInfo;      // Legacy format
-  data?: ReceiptData;      // New format
+  data?: ReceiptData;      // Receipt format
+  document?: DocumentData; // Contract format
   signaturePoints?: SignaturePoint[][] | null;
   signatureNguoiNhan?: string;
   signatureNguoiGui?: string;
   signatureDataNguoiNhan?: SignatureData;
   signatureDataNguoiGui?: SignatureData;
-  status?: 'pending' | 'signed';
+  status?: 'pending' | 'signed' | 'partially_signed';
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: UpdateReceiptRequest = await request.json();
-    const { id, info, data, signatureNguoiNhan, signatureNguoiGui, signatureDataNguoiNhan, signatureDataNguoiGui, ...updates } = body;
+    const { id, info, data, document, signatureNguoiNhan, signatureNguoiGui, signatureDataNguoiNhan, signatureDataNguoiGui, ...updates } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -29,7 +30,14 @@ export async function POST(request: NextRequest) {
     // Build updates object
     const updateData: Record<string, unknown> = { ...updates };
     
-    if (data) {
+    if (document) {
+      // Contract update
+      updateData.document = document;
+      // Clear other formats
+      updateData.info = undefined;
+      updateData.data = undefined;
+    } else if (data) {
+      // Receipt update
       updateData.data = data;
       // Clear legacy info if using new format
       updateData.info = undefined;
@@ -41,6 +49,7 @@ export async function POST(request: NextRequest) {
         updateData.signatureDataNguoiGui = data.signatureDataNguoiGui;
       }
     } else if (info) {
+      // Legacy update
       updateData.info = info;
     }
     

@@ -56,6 +56,39 @@ export interface ReceiptData {
   signatureDataNguoiGui?: SignatureData;
 }
 
+// NEW: Signer definition for contracts
+export interface Signer {
+  id: string;
+  role: string; // 'Bên A', 'Bên B', 'Người vay', 'Người cho vay', etc.
+  name: string;
+  position?: string; // Chức vụ
+  organization?: string; // Tổ chức/công ty
+  idNumber?: string; // CMND/CCCD
+  phone?: string;
+  email?: string;
+  address?: string;
+  signed: boolean;
+  signedAt?: number;
+  signatureData?: SignatureData;
+}
+
+// NEW: Contract/Document data structure
+export interface DocumentData {
+  type: 'receipt' | 'contract'; // Phân biệt loại văn bản
+  templateId?: string; // ID của mẫu (nếu dùng mẫu)
+  title: string; // Tiêu đề hợp đồng
+  content: string; // HTML string - Nội dung văn bản đầy đủ
+  signers: Signer[]; // Danh sách người ký
+  metadata: {
+    contractNumber?: string; // Số hợp đồng
+    createdDate: string; // Ngày lập
+    effectiveDate?: string; // Ngày hiệu lực
+    expiryDate?: string; // Ngày hết hạn
+    location: string; // Địa điểm ký
+    [key: string]: any; // Metadata khác
+  };
+}
+
 export interface SignaturePoint {
   x: number;
   y: number;
@@ -76,7 +109,8 @@ export interface Receipt {
   id: string;
   // Support both old and new format
   info?: ReceiptInfo;  // Legacy format
-  data?: ReceiptData;  // New format
+  data?: ReceiptData;  // New format (receipts)
+  document?: DocumentData; // NEW: Contract/Document format
   signaturePoints: SignaturePoint[][] | null; // Legacy - deprecated
   // New signature storage - only data, no base64
   signatureDataNguoiNhan?: SignatureData;
@@ -84,9 +118,11 @@ export interface Receipt {
   // Legacy base64 fields - for backward compatibility
   signatureNguoiNhan?: string;
   signatureNguoiGui?: string;
-  status: 'pending' | 'signed';
+  status: 'pending' | 'signed' | 'partially_signed'; // NEW: Thêm trạng thái ký 1 phần
   createdAt: number;
   signedAt?: number;
+  viewedAt?: number; // NEW: Tracking when customer first viewed
+  pdfUrl?: string; // NEW: URL của file PDF đã tạo (nếu có)
 }
 
 // Redis Keys
@@ -97,7 +133,7 @@ const ADMIN_LIST_KEY = 'admin:receipt_ids';
 
 // Create receipt with new ReceiptData format
 export async function createReceipt(
-  infoOrData: ReceiptInfo | ReceiptData,
+  infoOrData: ReceiptInfo | ReceiptData | DocumentData,
   signaturePoints?: SignaturePoint[][] | null,
   signatureNguoiNhan?: string,
   signatureNguoiGui?: string
@@ -105,21 +141,25 @@ export async function createReceipt(
   const id = createReceiptId();
   const redis = getRedis();
   
-  // Detect if it's new format (has 'fields' array) or legacy format
-  const isNewFormat = 'fields' in infoOrData;
+  // Detect format type
+  const isDocumentFormat = 'type' in infoOrData && infoOrData.type === 'contract';
+  const isNewReceiptFormat = 'fields' in infoOrData && !isDocumentFormat;
+  const isLegacyFormat = !isDocumentFormat && !isNewReceiptFormat;
   
   const receipt: Receipt = {
     id,
-    ...(isNewFormat 
-      ? { data: infoOrData as ReceiptData }
-      : { info: infoOrData as ReceiptInfo }
+    ...(isDocumentFormat 
+      ? { document: infoOrData as DocumentData }
+      : isNewReceiptFormat 
+        ? { data: infoOrData as ReceiptData }
+        : { info: infoOrData as ReceiptInfo }
     ),
     signaturePoints: signaturePoints || null,
-    signatureNguoiNhan: signatureNguoiNhan || (isNewFormat ? (infoOrData as ReceiptData).signatureNguoiNhan : undefined),
-    signatureNguoiGui: signatureNguoiGui || (isNewFormat ? (infoOrData as ReceiptData).signatureNguoiGui : undefined),
+    signatureNguoiNhan: signatureNguoiNhan || (isNewReceiptFormat ? (infoOrData as ReceiptData).signatureNguoiNhan : undefined),
+    signatureNguoiGui: signatureNguoiGui || (isNewReceiptFormat ? (infoOrData as ReceiptData).signatureNguoiGui : undefined),
     // Store actual signature data for server-side rendering
-    signatureDataNguoiNhan: isNewFormat ? (infoOrData as ReceiptData).signatureDataNguoiNhan : undefined,
-    signatureDataNguoiGui: isNewFormat ? (infoOrData as ReceiptData).signatureDataNguoiGui : undefined,
+    signatureDataNguoiNhan: isNewReceiptFormat ? (infoOrData as ReceiptData).signatureDataNguoiNhan : undefined,
+    signatureDataNguoiGui: isNewReceiptFormat ? (infoOrData as ReceiptData).signatureDataNguoiGui : undefined,
     status: 'pending',
     createdAt: Date.now(),
   };

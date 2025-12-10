@@ -6,6 +6,53 @@ import { Loader2, FileText } from 'lucide-react';
 import LoginFormKV from '@/components/LoginFormKV';
 import DashboardKV from '@/components/DashboardKV';
 import ReceiptViewKV from '@/components/ReceiptViewKV';
+import ContractViewKV from '@/components/ContractViewKV';
+
+// Component to detect and render correct view (Receipt or Contract)
+function ReceiptOrContractView({ receiptId }: { receiptId: string }) {
+  const [documentType, setDocumentType] = useState<'receipt' | 'contract' | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const detectType = async () => {
+      try {
+        const res = await fetch(`/api/receipts/get?id=${receiptId}`);
+        const data = await res.json();
+        
+        if (data.success && data.receipt) {
+          // Check if it's a contract (has document field) or receipt
+          if (data.receipt.document) {
+            setDocumentType('contract');
+          } else {
+            setDocumentType('receipt');
+          }
+        }
+      } catch (error) {
+        console.error('Error detecting document type:', error);
+        setDocumentType('receipt'); // Default to receipt on error
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    detectType();
+  }, [receiptId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-glass">
+        <Loader2 className="w-8 h-8 animate-spin text-gray-600" />
+      </div>
+    );
+  }
+
+  // Render appropriate component based on document type
+  if (documentType === 'contract') {
+    return <ContractViewKV receiptId={receiptId} />;
+  }
+
+  return <ReceiptViewKV receiptId={receiptId} />;
+}
 
 function HomeContent() {
   const searchParams = useSearchParams();
@@ -69,9 +116,9 @@ function HomeContent() {
     );
   }
 
-  // Priority 1: Signer mode - Show receipt view for signing
+  // Priority 1: Signer mode - Show receipt/contract view for signing
   if (receiptId) {
-    return <ReceiptViewKV receiptId={receiptId} />;
+    return <ReceiptOrContractView receiptId={receiptId} />;
   }
 
   // Priority 2: Not logged in - show login form

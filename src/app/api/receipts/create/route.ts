@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createReceipt, ReceiptInfo, ReceiptData, SignaturePoint, SignatureData } from '@/lib/kv';
+import { createReceipt, ReceiptInfo, ReceiptData, DocumentData, SignaturePoint, SignatureData } from '@/lib/kv';
 
 interface CreateReceiptRequest {
   // Support both old and new format
   info?: ReceiptInfo;      // Legacy format
-  data?: ReceiptData;      // New format
+  data?: ReceiptData;      // New format (receipts)
+  document?: DocumentData; // NEW: Contract/Document format
   signaturePoints?: SignaturePoint[][] | null;
   signatureNguoiNhan?: string; // Chữ ký người nhận (admin) - base64 preview
   signatureNguoiGui?: string;  // Chữ ký người gửi (admin) - base64 preview
@@ -15,18 +16,18 @@ interface CreateReceiptRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: CreateReceiptRequest = await request.json();
-    const { info, data, signaturePoints, signatureNguoiNhan, signatureNguoiGui, signatureDataNguoiNhan, signatureDataNguoiGui } = body;
+    const { info, data, document, signaturePoints, signatureNguoiNhan, signatureNguoiGui, signatureDataNguoiNhan, signatureDataNguoiGui } = body;
 
-    // Need either info (legacy) or data (new format)
-    if (!info && !data) {
+    // Need either info (legacy), data (new receipt), or document (contract)
+    if (!info && !data && !document) {
       return NextResponse.json(
-        { success: false, error: 'Receipt info or data is required' },
+        { success: false, error: 'Receipt info, data, or document is required' },
         { status: 400 }
       );
     }
 
-    // Use new format if available, otherwise use legacy
-    const receiptData = data || info;
+    // Determine which format to use
+    const receiptData = document || data || info;
     
     // Create receipt with base64 previews
     const receipt = await createReceipt(

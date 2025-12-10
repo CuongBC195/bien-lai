@@ -15,6 +15,7 @@ const PROTECTED_ROUTES = [
 const PUBLIC_API_ROUTES = [
   '/api/receipts/get',
   '/api/receipts/sign',
+  '/api/receipts/track-view',
   '/api/auth/login',
   '/api/auth/logout',
   '/api/send-email',

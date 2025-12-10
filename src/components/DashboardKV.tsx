@@ -77,9 +77,32 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
+// Helper: Detect document type
+function getDocumentType(receipt: Receipt): 'contract' | 'receipt' {
+  return receipt.document ? 'contract' : 'receipt';
+}
+
+// Helper: Get display title
+function getDocumentTitle(receipt: Receipt): string {
+  if (receipt.document) {
+    return receipt.document.title;
+  }
+  if (receipt.data) {
+    return receipt.data.title || 'Biên nhận tiền';
+  }
+  return 'Biên nhận tiền';
+}
+
 // Helper function to get field value from receipt (supports both formats)
 function getReceiptField(receipt: Receipt, fieldId: string): string {
-  // Try new format first
+  // Contract format
+  if (receipt.document) {
+    // For contracts, return empty or specific field if needed
+    const signer = receipt.document.signers.find(s => s.role === 'Bên A' || s.role === 'Bên B');
+    if (fieldId === 'hoTenNguoiNhan' && signer) return signer.name;
+    return '';
+  }
+  // Try new receipt format
   if (receipt.data?.fields) {
     const field = receipt.data.fields.find(f => f.id === fieldId);
     if (field) return field.value;
@@ -94,6 +117,9 @@ function getReceiptField(receipt: Receipt, fieldId: string): string {
 
 // Helper to get soTien (money amount)
 function getReceiptAmount(receipt: Receipt): number {
+  // Contracts don't have simple money field
+  if (receipt.document) return 0;
+  
   // Try new format first
   if (receipt.data?.fields) {
     const moneyField = receipt.data.fields.find(f => f.type === 'money');
@@ -158,11 +184,22 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   };
 
   const handleCreateNew = () => {
-    setEditingReceipt(null);
-    setIsEditorOpen(true);
+    // Navigate to template library for new creation flow
+    window.location.href = '/dashboard/create';
   };
 
   const handleEdit = (receipt: Receipt) => {
+    // Admin has full access - can edit anything
+    // Check if it's a contract or receipt
+    if (receipt.document) {
+      // For contracts, open in contract editor
+      // Store contract data in sessionStorage for editor to load
+      sessionStorage.setItem('editingContract', JSON.stringify(receipt));
+      window.location.href = `/dashboard/editor?edit=${receipt.id}`;
+      return;
+    }
+    
+    // For legacy receipts, open old editor
     setEditingReceipt(receipt);
     setIsEditorOpen(true);
   };
@@ -432,10 +469,15 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         <CheckCircle2 className="w-3 h-3" />
                         Đã ký
                       </span>
+                    ) : receipt.viewedAt ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
+                        <Eye className="w-3 h-3" />
+                        Đã xem
+                      </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
                         <Clock className="w-3 h-3" />
-                        Chờ ký
+                        Chưa xem
                       </span>
                     )}
                   </div>
@@ -493,38 +535,57 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 <thead className="bg-gray-50/50 border-b border-gray-200/50">
                   <tr>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
-                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Người nhận</th>
-                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Người gửi</th>
-                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Số tiền</th>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Tiêu đề</th>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Bên ký</th>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Trạng thái</th>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Ngày tạo</th>
                     <th className="px-5 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {filteredReceipts.map((receipt) => (
+                  {filteredReceipts.map((receipt) => {
+                    const docType = getDocumentType(receipt);
+                    const isContract = docType === 'contract';
+                    
+                    return (
                     <tr key={receipt.id} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-5 py-4">
-                        <code className="text-sm bg-gray-100 px-2 py-1 rounded text-gray-700">
-                          {receipt.id}
-                        </code>
-                      </td>
-                      <td className="px-5 py-4">
-                        <div>
-                          <p className="font-medium text-gray-900">{getReceiptField(receipt, 'hoTenNguoiNhan') || 'N/A'}</p>
-                          <p className="text-sm text-gray-500">{getReceiptField(receipt, 'donViNguoiNhan') || '-'}</p>
+                        <div className="flex flex-col gap-1">
+                          <code className="text-sm bg-gray-100 px-2 py-1 rounded text-gray-700">
+                            {receipt.id}
+                          </code>
+                          {isContract && (
+                            <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium w-fit">
+                              Hợp đồng
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-5 py-4">
                         <div>
-                          <p className="font-medium text-gray-900">{getReceiptField(receipt, 'hoTenNguoiGui') || 'N/A'}</p>
-                          <p className="text-sm text-gray-500">{getReceiptField(receipt, 'donViNguoiGui') || '-'}</p>
+                          <p className="font-medium text-gray-900">
+                            {isContract ? getDocumentTitle(receipt) : (getReceiptField(receipt, 'hoTenNguoiNhan') || 'N/A')}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            {isContract 
+                              ? `${receipt.document?.signers.length || 0} bên ký` 
+                              : (getReceiptField(receipt, 'donViNguoiNhan') || '-')}
+                          </p>
                         </div>
                       </td>
                       <td className="px-5 py-4">
-                        <span className="font-semibold text-gray-900">
-                          {formatNumber(getReceiptAmount(receipt))} ₫
-                        </span>
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {isContract 
+                              ? (receipt.document?.signers[0]?.name || '-')
+                              : (getReceiptField(receipt, 'hoTenNguoiGui') || 'N/A')}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            {isContract 
+                              ? (receipt.document?.signers[0]?.organization || '-')
+                              : (getReceiptField(receipt, 'donViNguoiGui') || '-')}
+                          </p>
+                        </div>
                       </td>
                       <td className="px-5 py-4">
                         {receipt.status === 'signed' ? (
@@ -532,10 +593,20 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Đã ký
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-medium">
+                        ) : receipt.status === 'partially_signed' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                             <Clock className="w-3.5 h-3.5" />
-                            Chờ ký
+                            Ký 1 phần
+                          </span>
+                        ) : receipt.viewedAt ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
+                            <Eye className="w-3.5 h-3.5" />
+                            Đã xem
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+                            <Clock className="w-3.5 h-3.5" />
+                            Chưa xem
                           </span>
                         )}
                       </td>
@@ -587,7 +658,8 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

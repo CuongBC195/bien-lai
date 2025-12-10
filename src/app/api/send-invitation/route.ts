@@ -13,10 +13,19 @@ interface ReceiptInfo {
   diaDiem?: string;
 }
 
+interface DocumentData {
+  type?: 'receipt' | 'contract';
+  title?: string;
+  contractNumber?: string;
+  signers?: any[];
+}
+
 interface RequestBody {
   customerEmail: string;
   customerName?: string;
   receiptInfo?: ReceiptInfo;
+  documentData?: DocumentData; // NEW: For contracts
+  receiptId?: string; // NEW: Receipt/Contract ID
   signingUrl: string;
 }
 
@@ -29,7 +38,7 @@ function formatCurrency(amount?: number): string {
 export async function POST(request: NextRequest) {
   try {
     const body: RequestBody = await request.json();
-    const { customerEmail, customerName, receiptInfo, signingUrl } = body;
+    const { customerEmail, customerName, receiptInfo, documentData, receiptId, signingUrl } = body;
 
     if (!customerEmail || !signingUrl) {
       return NextResponse.json(
@@ -46,9 +55,15 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Build email content based on whether we have receiptInfo or not
-    const senderName = receiptInfo?.donViNguoiNhan || 'Biên nhận điện tử';
-    const subjectName = receiptInfo?.hoTenNguoiNhan || customerName || 'Biên nhận';
+    // Determine document type and format subject/sender
+    const isContract = documentData?.type === 'contract' || !!documentData?.title;
+    const docTitle = documentData?.title || 'Văn bản';
+    const docId = receiptId || 'N/A';
+    
+    const senderName = isContract ? 'Hợp đồng điện tử' : (receiptInfo?.donViNguoiNhan || 'Biên nhận điện tử');
+    const subjectName = isContract 
+      ? `${docTitle} - ${docId}` 
+      : (receiptInfo?.hoTenNguoiNhan || customerName || 'Biên nhận');
     
     // Simplified email when no receiptInfo
     const hasReceiptInfo = receiptInfo && (receiptInfo.hoTenNguoiNhan || receiptInfo.soTien);
@@ -99,7 +114,9 @@ export async function POST(request: NextRequest) {
     const mailOptions = {
       from: `"${senderName}" <${process.env.EMAIL_USER}>`,
       to: customerEmail,
-      subject: `Yêu cầu ký xác nhận biên nhận - ${subjectName}`,
+      subject: isContract 
+        ? `Yêu cầu ký xác nhận - ${subjectName}`
+        : `Yêu cầu ký xác nhận biên nhận - ${subjectName}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -114,7 +131,7 @@ export async function POST(request: NextRequest) {
             <!-- Header -->
             <div style="padding: 28px 24px; text-align: center; border-bottom: 1px solid #e8e4dc; background: #fdfcfa;">
               <h1 style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 26px; font-weight: 600; color: #2a2520; margin: 0 0 6px 0;">
-                Biên Nhận Điện Tử
+                ${isContract ? 'Hợp đồng điện tử' : 'Biên nhận điện tử'}
               </h1>
               <p style="font-size: 12px; color: #8a8279; margin: 0; text-transform: uppercase; letter-spacing: 1px;">
                 Yêu cầu ký xác nhận
@@ -128,7 +145,9 @@ export async function POST(request: NextRequest) {
               </p>
               
               <p style="color: #5c574f; margin-bottom: 28px; font-size: 15px;">
-                Chúng tôi xin gửi đến Quý khách thông tin biên nhận tiền và kính mời Quý khách ký xác nhận.
+                ${isContract 
+                  ? `Chúng tôi xin gửi đến Quý khách <strong>${docTitle}</strong> (Mã: ${docId}) và kính mời Quý khách xem xét và ký xác nhận.`
+                  : 'Chúng tôi xin gửi đến Quý khách thông tin biên nhận tiền và kính mời Quý khách ký xác nhận.'}
               </p>
               
               ${receiptInfoHtml}
@@ -136,7 +155,7 @@ export async function POST(request: NextRequest) {
               <!-- CTA Section -->
               <div style="text-align: center; margin: 30px 0;">
                 <p style="color: #5c574f; margin-bottom: 20px; font-size: 14px;">
-                  Vui lòng nhấn vào nút bên dưới để xem và ký xác nhận biên nhận:
+                  Vui lòng nhấn vào nút bên dưới để xem và ký xác nhận:
                 </p>
                 <a href="${signingUrl}" 
                    style="display: inline-block; background: linear-gradient(135deg, #2a2520 0%, #3d3835 100%); color: #ffffff; padding: 14px 36px; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px rgba(42, 37, 32, 0.2);">
