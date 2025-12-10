@@ -408,8 +408,28 @@ export default function ReceiptViewKV({ receiptId }: ReceiptViewKVProps) {
       });
 
       const signData = await signRes.json();
+      
       if (!signData.success) {
-        throw new Error(signData.error);
+        // 🔒 SECURITY: Handle specific error codes
+        if (signData.code === 'EMPTY_SIGNATURE') {
+          showToast('⚠️ Vui lòng vẽ chữ ký trước khi gửi!', 'error');
+        } else if (signData.code === 'RATE_LIMITED') {
+          const retryAfter = signData.retryAfter || 60;
+          showToast(`⏱️ Vui lòng đợi ${retryAfter} giây trước khi thử lại.`, 'error');
+          // Keep loading state for rate limit duration
+          setTimeout(() => {
+            setSendStatus('idle');
+          }, retryAfter * 1000);
+          return; // Don't reset sendStatus immediately
+        } else if (signData.code === 'ALREADY_SIGNED') {
+          showToast('⚠️ Biên lai này đã được ký rồi!', 'error');
+          setShowSuccess(true);
+        } else {
+          showToast(signData.error || 'Có lỗi xảy ra', 'error');
+        }
+        setSendStatus('error');
+        setTimeout(() => setSendStatus('idle'), 2000);
+        return;
       }
 
       // Mark as success

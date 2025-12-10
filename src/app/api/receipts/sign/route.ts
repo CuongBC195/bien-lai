@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getReceipt, updateReceipt, signReceipt, Receipt, DynamicField, SignatureData } from '@/lib/kv';
 import nodemailer from 'nodemailer';
 import { generateContractPDF, generatePDFFilename } from '@/lib/pdf-generator';
+import { Ratelimit } from '@upstash/ratelimit';
+import { kv } from '@vercel/kv';
+
+// 🔒 SECURITY: Rate limiting for signing (prevent spam)
+// Limit: 3 requests per 1 minute per IP (enough to fix mistakes, but prevent abuse)
+const signRateLimit = new Ratelimit({
+  redis: kv,
+  limiter: Ratelimit.slidingWindow(3, '1 m'),
+  analytics: true,
+  prefix: 'ratelimit:sign',
+});
 
 interface SignReceiptRequest {
   id: string;
@@ -307,6 +318,75 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'Receipt ID is required' },
         { status: 400 }
+      );
+    }
+
+    // 🔒 SECURITY: Validate signature data (prevent empty submissions)
+    const hasContractSignature = signatureDataNguoiGui || signatureDataNguoiNhan;
+    const hasLegacySignature = receiptImage;
+    
+    if (!hasContractSignature && !hasLegacySignature) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: 'Signature data is required. Please draw or type your signature.',
+          code: 'EMPTY_SIGNATURE'
+        },
+        { status: 400 }
+      );
+    }
+
+    // Validate signature has content (for contract signatures)
+    if (hasContractSignature) {
+      const sigData = signatureDataNguoiGui || signatureDataNguoiNhan;
+      if (sigData?.type === 'draw' && (!sigData.signaturePoints || sigData.signaturePoints.length === 0)) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Please draw your signature before submitting.',
+            code: 'EMPTY_SIGNATURE'
+          },
+          { status: 400 }
+        );
+      }
+      if (sigData?.type === 'type' && (!sigData.typedText || sigData.typedText.trim() === '')) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'Please type your signature before submitting.',
+            code: 'EMPTY_SIGNATURE'
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // 🔒 SECURITY: Rate limiting by IP (prevent spam/abuse)
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 
+               request.headers.get('x-real-ip') || 
+               'anonymous';
+
+    const { success: rateLimitOk, limit, remaining, reset } = await signRateLimit.limit(`${ip}:${id}`);
+
+    if (!rateLimitOk) {
+      const secondsUntilReset = Math.ceil((reset - Date.now()) / 1000);
+      
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: `Vui lòng đợi ${secondsUntilReset} giây trước khi ký lại.`,
+          code: 'RATE_LIMITED',
+          retryAfter: secondsUntilReset
+        },
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': String(secondsUntilReset),
+            'X-RateLimit-Limit': String(limit),
+            'X-RateLimit-Remaining': String(remaining),
+            'X-RateLimit-Reset': String(reset),
+          }
+        }
       );
     }
 

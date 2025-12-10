@@ -180,6 +180,16 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
           window.location.reload();
         } else if (result.code === 'PDF_GENERATION_FAILED') {
           showToast('❌ Không thể tạo PDF. Vui lòng thử lại sau.', 'error');
+        } else if (result.code === 'EMPTY_SIGNATURE') {
+          showToast('⚠️ Vui lòng vẽ hoặc gõ chữ ký trước khi gửi!', 'error');
+        } else if (result.code === 'RATE_LIMITED') {
+          const retryAfter = result.retryAfter || 60;
+          showToast(`⏱️ Vui lòng đợi ${retryAfter} giây trước khi thử lại.`, 'error');
+          // Auto re-enable after rate limit expires
+          setTimeout(() => {
+            setSigning(false);
+          }, retryAfter * 1000);
+          return; // Don't setSigning(false) immediately
         } else {
           showToast(result.error || 'Ký thất bại', 'error');
         }
@@ -188,6 +198,7 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
       console.error('Error signing:', error);
       showToast('Có lỗi xảy ra khi ký', 'error');
     } finally {
+      // Only reset if not rate limited (handled above)
       setSigning(false);
     }
   };

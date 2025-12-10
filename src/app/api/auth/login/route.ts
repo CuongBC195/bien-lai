@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPassword, createToken, setAuthCookie } from '@/lib/auth';
-import { getRedisClient } from '@/lib/kv';
+import { Ratelimit } from '@upstash/ratelimit';
+import { kv } from '@vercel/kv';
 
-// 🔒 SECURITY: Rate limiting configuration
-const MAX_LOGIN_ATTEMPTS = 5;
-const RATE_LIMIT_WINDOW = 15 * 60; // 15 minutes in seconds
-const LOCKOUT_DURATION = 30 * 60; // 30 minutes in seconds
+// 🔒 SECURITY: Rate limiting with @upstash/ratelimit
+// Limit: 5 attempts per 15 minutes per IP (sliding window)
+const loginRateLimit = new Ratelimit({
+  redis: kv,
+  limiter: Ratelimit.slidingWindow(5, '15 m'),
+  analytics: true,
+  prefix: 'ratelimit:login',
+});
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,71 +24,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 🔒 SECURITY: Rate limiting by IP
-    const ip = request.headers.get('x-forwarded-for') || 
+    // 🔒 SECURITY: Get IP for rate limiting
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 
                request.headers.get('x-real-ip') || 
-               'unknown';
-    const rateLimitKey = `login_attempts:${ip}`;
-    const lockoutKey = `login_locked:${ip}`;
+               'anonymous';
 
-    const redis = getRedisClient();
+    // 🔒 SECURITY: Check rate limit BEFORE password verification (prevent timing attacks)
+    const { success: rateLimitOk, limit, remaining, reset } = await loginRateLimit.limit(ip);
 
-    // Check if IP is locked out
-    const isLockedOut = await redis.get(lockoutKey);
-    if (isLockedOut) {
-      const ttl = await redis.ttl(lockoutKey);
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: `Too many failed login attempts. Please try again in ${Math.ceil(ttl / 60)} minutes.`,
-          code: 'RATE_LIMITED',
-          retryAfter: ttl
-        },
-        { status: 429 }
-      );
-    }
-
-    // Check current attempt count
-    const attempts = await redis.get(rateLimitKey);
-    const currentAttempts = attempts ? parseInt(attempts as string) : 0;
-
-    if (currentAttempts >= MAX_LOGIN_ATTEMPTS) {
-      // Lock out the IP
-      await redis.setex(lockoutKey, LOCKOUT_DURATION, '1');
-      await redis.del(rateLimitKey);
+    if (!rateLimitOk) {
+      const resetDate = new Date(reset);
+      const minutesUntilReset = Math.ceil((reset - Date.now()) / 1000 / 60);
       
       return NextResponse.json(
         { 
           success: false, 
-          error: `Maximum login attempts exceeded. Account locked for ${LOCKOUT_DURATION / 60} minutes.`,
-          code: 'ACCOUNT_LOCKED'
+          error: `Bạn đã nhập sai quá nhiều lần. Vui lòng thử lại sau ${minutesUntilReset} phút.`,
+          code: 'RATE_LIMITED',
+          retryAfter: Math.ceil((reset - Date.now()) / 1000),
+          resetAt: resetDate.toISOString()
         },
-        { status: 429 }
+        { 
+          status: 429,
+          headers: {
+            'Retry-After': String(Math.ceil((reset - Date.now()) / 1000)),
+            'X-RateLimit-Limit': String(limit),
+            'X-RateLimit-Remaining': String(remaining),
+            'X-RateLimit-Reset': String(reset),
+          }
+        }
       );
     }
 
     // Verify password against server-side env var
     if (!verifyPassword(password)) {
-      // Increment failed attempts
-      const newAttempts = currentAttempts + 1;
-      await redis.setex(rateLimitKey, RATE_LIMIT_WINDOW, newAttempts.toString());
-      
-      const remainingAttempts = MAX_LOGIN_ATTEMPTS - newAttempts;
-      
       return NextResponse.json(
         { 
           success: false, 
-          error: 'Invalid password',
-          remainingAttempts: Math.max(0, remainingAttempts),
-          warning: remainingAttempts <= 2 ? `Warning: Only ${remainingAttempts} attempts remaining before lockout` : undefined
+          error: 'Mật khẩu không đúng',
+          remainingAttempts: remaining - 1,
+          warning: remaining <= 2 ? `⚠️ Còn ${remaining - 1} lần thử. Sau đó sẽ bị khóa 15 phút!` : undefined
         },
         { status: 401 }
       );
     }
 
-    // 🎉 SUCCESS: Clear rate limiting on successful login
-    await redis.del(rateLimitKey);
-    await redis.del(lockoutKey);
+    // 🎉 SUCCESS: Password correct
 
     // Create JWT token
     const token = await createToken();
