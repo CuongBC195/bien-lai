@@ -263,13 +263,17 @@ ${receipt.document?.metadata.contractNumber ? `📄 Số: ${receipt.document.met
       receipt.id,
       docTitle
     );
-    formData.append('document', new Blob([pdfBuffer], { type: 'application/pdf' }), filename);
+    // Convert Buffer to Uint8Array for Blob compatibility
+    const pdfArray = new Uint8Array(pdfBuffer);
+    formData.append('document', new Blob([pdfArray], { type: 'application/pdf' }), filename);
     endpoint = `https://api.telegram.org/bot${botToken}/sendDocument`;
   } else if (receiptImageBase64) {
     // Send photo (legacy)
     const base64Data = receiptImageBase64.replace(/^data:image\/\w+;base64,/, '');
     const imageBuffer = Buffer.from(base64Data, 'base64');
-    formData.append('photo', new Blob([imageBuffer], { type: 'image/png' }), 'receipt.png');
+    // Convert Buffer to Uint8Array for Blob compatibility
+    const imageArray = new Uint8Array(imageBuffer);
+    formData.append('photo', new Blob([imageArray], { type: 'image/png' }), 'receipt.png');
     endpoint = `https://api.telegram.org/bot${botToken}/sendPhoto`;
   } else {
     throw new Error('No PDF or image data provided');

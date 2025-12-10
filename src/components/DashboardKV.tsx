@@ -268,24 +268,34 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     setSendingEmail(true);
     try {
       const url = `${window.location.origin}/?id=${selectedReceiptForEmail.id}`;
-      const receiptName = getReceiptField(selectedReceiptForEmail, 'hoTenNguoiNhan') || 'N/A';
+      const isContract = !!selectedReceiptForEmail.document;
+      const docTitle = getDocumentTitle(selectedReceiptForEmail);
+      const docId = selectedReceiptForEmail.id;
+      
+      // Format subject based on document type
+      const emailSubject = isContract 
+        ? `${docTitle} - ${docId}`
+        : `Biên nhận tiền - ${getReceiptField(selectedReceiptForEmail, 'hoTenNguoiNhan') || 'N/A'}`;
       
       // Get signature status to determine who needs to sign
       const sigNhan = selectedReceiptForEmail.signatureNguoiNhan || selectedReceiptForEmail.data?.signatureNguoiNhan;
       const sigGui = selectedReceiptForEmail.signatureNguoiGui || selectedReceiptForEmail.data?.signatureNguoiGui;
       
-      const res = await fetch('/api/send-email', {
+      const res = await fetch('/api/send-invitation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to: emailAddress,
-          subject: `Biên nhận tiền - ${receiptName}`,
-          receiptId: selectedReceiptForEmail.id,
-          receiptInfo: selectedReceiptForEmail.info || selectedReceiptForEmail.data,
-          signUrl: url,
-          // Pass signature status
-          signatureNguoiNhan: sigNhan,
-          signatureNguoiGui: sigGui,
+          customerEmail: emailAddress,
+          customerName: emailAddress.split('@')[0],
+          receiptId: docId,
+          documentData: isContract ? {
+            type: 'contract',
+            title: docTitle,
+            contractNumber: selectedReceiptForEmail.document?.metadata.contractNumber,
+            signers: selectedReceiptForEmail.document?.signers,
+          } : undefined,
+          receiptInfo: !isContract ? (selectedReceiptForEmail.info || selectedReceiptForEmail.data) : undefined,
+          signingUrl: url,
         }),
       });
 
