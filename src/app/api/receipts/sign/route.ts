@@ -335,6 +335,19 @@ export async function POST(request: NextRequest) {
           );
         }
 
+        // 🔒 SECURITY: Prevent double signing (race condition protection)
+        const currentSigner = receipt.document.signers[signerIndex];
+        if (currentSigner.signed) {
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: 'This signer has already signed this document',
+              code: 'ALREADY_SIGNED'
+            },
+            { status: 403 }
+          );
+        }
+
         const updatedSigners = [...receipt.document.signers];
         updatedSigners[signerIndex] = {
           ...updatedSigners[signerIndex],
@@ -363,14 +376,36 @@ export async function POST(request: NextRequest) {
 
       // Generate PDF for contract (only if all signed)
       if (updatedReceipt.status === 'signed') {
-        pdfBuffer = await generateContractPDF({
-          title: receipt.document.title,
-          content: receipt.document.content,
-          signers: updatedReceipt.document!.signers,
-          metadata: receipt.document.metadata,
-          includeHeader: true,
-          includeFooter: true,
-        });
+        try {
+          pdfBuffer = await generateContractPDF({
+            title: receipt.document.title,
+            content: receipt.document.content,
+            signers: updatedReceipt.document!.signers,
+            metadata: receipt.document.metadata,
+            includeHeader: true,
+            includeFooter: true,
+          });
+        } catch (pdfError) {
+          // 🔒 SECURITY: Rollback if PDF generation fails
+          console.error('[PDF Generation] Failed:', pdfError);
+          
+          // Rollback: Mark as partially signed instead of fully signed
+          const rollbackUpdates: Partial<Receipt> = {
+            status: 'partially_signed',
+            signedAt: undefined,
+          };
+          await updateReceipt(id, rollbackUpdates);
+          
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: 'PDF generation failed. Please try again.',
+              code: 'PDF_GENERATION_FAILED',
+              details: pdfError instanceof Error ? pdfError.message : 'Unknown error'
+            },
+            { status: 500 }
+          );
+        }
       }
     } else {
       // LEGACY RECEIPT FLOW: Use image
@@ -378,6 +413,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { success: false, error: 'Receipt image is required for legacy receipts' },
           { status: 400 }
+        );
+      }
+
+      // 🔒 SECURITY: Prevent signing an already signed receipt
+      if (receipt.status === 'signed') {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: 'This receipt has already been signed',
+            code: 'ALREADY_SIGNED'
+          },
+          { status: 403 }
         );
       }
 

@@ -172,7 +172,17 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
           setReceipt(refreshData.receipt);
         }
       } else {
-        showToast(result.error || 'Ký thất bại', 'error');
+        // 🔒 SECURITY: Handle specific error codes
+        if (result.code === 'ALREADY_SIGNED') {
+          showToast('⚠️ Tài liệu này đã được ký rồi!', 'error');
+          setCompleted(true);
+          // Reload to show updated state
+          window.location.reload();
+        } else if (result.code === 'PDF_GENERATION_FAILED') {
+          showToast('❌ Không thể tạo PDF. Vui lòng thử lại sau.', 'error');
+        } else {
+          showToast(result.error || 'Ký thất bại', 'error');
+        }
       }
     } catch (error) {
       console.error('Error signing:', error);

@@ -313,30 +313,45 @@ export async function generateContractPDF(
 
     const page = await browser.newPage();
 
+    // 🔒 SECURITY: Set navigation timeout (30 seconds max)
+    page.setDefaultNavigationTimeout(30000);
+    page.setDefaultTimeout(30000);
+
     // Generate HTML
     const html = generateHTMLTemplate(options);
 
-    // Set content
+    // Set content with timeout
     await page.setContent(html, {
       waitUntil: 'networkidle0',
+      timeout: 20000, // 20 seconds max
     });
 
-    // Wait for fonts to load
-    await page.evaluateHandle('document.fonts.ready');
+    // Wait for fonts to load (with timeout)
+    await Promise.race([
+      page.evaluateHandle('document.fonts.ready'),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Font loading timeout')), 10000)
+      ),
+    ]);
 
     console.log('[PDF Generator] Generating PDF...');
 
-    // Generate PDF
-    const pdfBuffer = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: {
-        top: '15mm',
-        right: '15mm',
-        bottom: '15mm',
-        left: '15mm',
-      },
-    });
+    // Generate PDF with timeout
+    const pdfBuffer = await Promise.race([
+      page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: {
+          top: '15mm',
+          right: '15mm',
+          bottom: '15mm',
+          left: '15mm',
+        },
+      }),
+      new Promise<never>((_, reject) => 
+        setTimeout(() => reject(new Error('PDF generation timeout after 30 seconds')), 30000)
+      ),
+    ]);
 
     console.log('[PDF Generator] PDF generated successfully');
     console.log('[PDF Generator] Size:', pdfBuffer.length, 'bytes');
