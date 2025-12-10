@@ -1,18 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getReceipt, updateReceipt, signReceipt, Receipt, DynamicField, SignatureData } from '@/lib/kv';
+import { getReceipt, updateReceipt, signReceipt, Receipt, DynamicField, SignatureData, getRedisClient } from '@/lib/kv';
 import nodemailer from 'nodemailer';
 import { generateContractPDF, generatePDFFilename } from '@/lib/pdf-generator';
-import { Ratelimit } from '@upstash/ratelimit';
-import { kv } from '@vercel/kv';
 
-// 🔒 SECURITY: Rate limiting for signing (prevent spam)
-// Limit: 3 requests per 1 minute per IP (enough to fix mistakes, but prevent abuse)
-const signRateLimit = new Ratelimit({
-  redis: kv,
-  limiter: Ratelimit.slidingWindow(3, '1 m'),
-  analytics: true,
-  prefix: 'ratelimit:sign',
-});
+// 🔒 SECURITY: Rate limiting configuration for signing
+const MAX_SIGN_ATTEMPTS = 3;
+const SIGN_RATE_WINDOW = 60; // 1 minute in seconds
+
+/**
+ * Check rate limit for signing attempts using sliding window
+ * Returns { success: boolean, remaining: number, reset: number }
+ */
+async function checkSignRateLimit(identifier: string): Promise<{
+  success: boolean;
+  limit: number;
+  remaining: number;
+  reset: number;
+}> {
+  const redis = getRedisClient();
+  const key = `ratelimit:sign:${identifier}`;
+  const now = Date.now();
+  const windowStart = now - (SIGN_RATE_WINDOW * 1000);
+
+  // Use sorted set for sliding window
+  // Remove old entries
+  await redis.zremrangebyscore(key, 0, windowStart);
+
+  // Count current attempts in window
+  const count = await redis.zcard(key);
+
+  if (count >= MAX_SIGN_ATTEMPTS) {
+    // Get oldest entry to calculate reset time
+    const oldest = await redis.zrange(key, 0, 0, 'WITHSCORES');
+    const resetTime = oldest[1] ? parseInt(oldest[1]) + (SIGN_RATE_WINDOW * 1000) : now + (SIGN_RATE_WINDOW * 1000);
+    
+    return {
+      success: false,
+      limit: MAX_SIGN_ATTEMPTS,
+      remaining: 0,
+      reset: resetTime,
+    };
+  }
+
+  // Add current attempt
+  await redis.zadd(key, now, `${now}:${Math.random()}`);
+  await redis.expire(key, SIGN_RATE_WINDOW);
+
+  return {
+    success: true,
+    limit: MAX_SIGN_ATTEMPTS,
+    remaining: MAX_SIGN_ATTEMPTS - count - 1,
+    reset: now + (SIGN_RATE_WINDOW * 1000),
+  };
+}
 
 interface SignReceiptRequest {
   id: string;
@@ -366,7 +406,7 @@ export async function POST(request: NextRequest) {
                request.headers.get('x-real-ip') || 
                'anonymous';
 
-    const { success: rateLimitOk, limit, remaining, reset } = await signRateLimit.limit(`${ip}:${id}`);
+    const { success: rateLimitOk, limit, remaining, reset } = await checkSignRateLimit(`${ip}:${id}`);
 
     if (!rateLimitOk) {
       const secondsUntilReset = Math.ceil((reset - Date.now()) / 1000);

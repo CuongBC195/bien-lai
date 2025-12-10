@@ -1,16 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPassword, createToken, setAuthCookie } from '@/lib/auth';
-import { Ratelimit } from '@upstash/ratelimit';
-import { kv } from '@vercel/kv';
+import { getRedisClient } from '@/lib/kv';
 
-// 🔒 SECURITY: Rate limiting with @upstash/ratelimit
-// Limit: 5 attempts per 15 minutes per IP (sliding window)
-const loginRateLimit = new Ratelimit({
-  redis: kv,
-  limiter: Ratelimit.slidingWindow(5, '15 m'),
-  analytics: true,
-  prefix: 'ratelimit:login',
-});
+// 🔒 SECURITY: Rate limiting configuration
+const MAX_LOGIN_ATTEMPTS = 5;
+const RATE_LIMIT_WINDOW = 15 * 60; // 15 minutes in seconds
+
+/**
+ * Check rate limit for login attempts using sliding window
+ * Returns { success: boolean, remaining: number, reset: number }
+ */
+async function checkLoginRateLimit(ip: string): Promise<{
+  success: boolean;
+  limit: number;
+  remaining: number;
+  reset: number;
+}> {
+  const redis = getRedisClient();
+  const key = `ratelimit:login:${ip}`;
+  const now = Date.now();
+  const windowStart = now - (RATE_LIMIT_WINDOW * 1000);
+
+  // Use sorted set for sliding window
+  // Remove old entries
+  await redis.zremrangebyscore(key, 0, windowStart);
+
+  // Count current attempts in window
+  const count = await redis.zcard(key);
+
+  if (count >= MAX_LOGIN_ATTEMPTS) {
+    // Get oldest entry to calculate reset time
+    const oldest = await redis.zrange(key, 0, 0, 'WITHSCORES');
+    const resetTime = oldest[1] ? parseInt(oldest[1]) + (RATE_LIMIT_WINDOW * 1000) : now + (RATE_LIMIT_WINDOW * 1000);
+    
+    return {
+      success: false,
+      limit: MAX_LOGIN_ATTEMPTS,
+      remaining: 0,
+      reset: resetTime,
+    };
+  }
+
+  // Add current attempt
+  await redis.zadd(key, now, `${now}:${Math.random()}`);
+  await redis.expire(key, RATE_LIMIT_WINDOW);
+
+  return {
+    success: true,
+    limit: MAX_LOGIN_ATTEMPTS,
+    remaining: MAX_LOGIN_ATTEMPTS - count - 1,
+    reset: now + (RATE_LIMIT_WINDOW * 1000),
+  };
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,7 +71,7 @@ export async function POST(request: NextRequest) {
                'anonymous';
 
     // 🔒 SECURITY: Check rate limit BEFORE password verification (prevent timing attacks)
-    const { success: rateLimitOk, limit, remaining, reset } = await loginRateLimit.limit(ip);
+    const { success: rateLimitOk, limit, remaining, reset } = await checkLoginRateLimit(ip);
 
     if (!rateLimitOk) {
       const resetDate = new Date(reset);
