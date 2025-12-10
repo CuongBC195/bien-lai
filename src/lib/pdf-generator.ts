@@ -297,8 +297,16 @@ export async function generateContractPDF(
     browser = await puppeteer.launch({
       args: isDev
         ? ['--no-sandbox', '--disable-setuid-sandbox']
-        : chromium.args,
-      defaultViewport: chromium.defaultViewport,
+        : [
+            ...chromium.args,
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+          ],
+      defaultViewport: {
+        width: 1920,
+        height: 1080,
+      },
       executablePath,
       headless: true,
     });

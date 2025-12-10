@@ -32,59 +32,7 @@ import {
   formatVietnameseDate,
   cn 
 } from '@/lib/utils';
-
-// Dynamic field interface
-interface DynamicField {
-  id: string;
-  label: string;
-  value: string;
-  type: 'text' | 'textarea' | 'money';
-}
-
-// Signature data for server-side rendering
-interface SignatureData {
-  type: 'draw' | 'type';
-  signaturePoints?: SignaturePoint[][] | null;
-  typedText?: string;
-  fontFamily?: string;
-  color?: string;
-}
-
-interface ReceiptData {
-  title: string;
-  fields: DynamicField[];
-  ngayThang: string;
-  diaDiem: string;
-  signatureNguoiNhan?: string;  // preview base64
-  signatureNguoiGui?: string;   // preview base64
-  signatureDataNguoiNhan?: SignatureData;  // actual data for server rendering
-  signatureDataNguoiGui?: SignatureData;   // actual data for server rendering
-}
-
-// Legacy format for backward compatibility
-interface LegacyReceiptInfo {
-  hoTenNguoiNhan: string;
-  hoTenNguoiGui: string;
-  donViNguoiNhan: string;
-  donViNguoiGui: string;
-  lyDoNop: string;
-  soTien: number;
-  bangChu: string;
-  ngayThang: string;
-  diaDiem: string;
-}
-
-interface Receipt {
-  id: string;
-  // Support both old and new format
-  info?: LegacyReceiptInfo;  // Legacy format
-  data?: ReceiptData;        // New format
-  signatureNguoiNhan?: string;
-  signatureNguoiGui?: string;
-  status: 'pending' | 'signed';
-  createdAt: number;
-  signedAt?: number;
-}
+import type { Receipt, ReceiptInfo, ReceiptData, DynamicField, SignatureData } from '@/lib/kv';
 
 interface ReceiptEditorKVProps {
   receipt?: Receipt | null;
@@ -105,7 +53,7 @@ const DEFAULT_FIELDS: DynamicField[] = [
 ];
 
 // Convert legacy format to new format
-function convertLegacyToNew(info: LegacyReceiptInfo): ReceiptData {
+function convertLegacyToNew(info: ReceiptInfo): ReceiptData {
   return {
     title: 'GIẤY BIÊN NHẬN TIỀN',
     fields: [

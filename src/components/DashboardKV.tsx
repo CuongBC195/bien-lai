@@ -21,57 +21,7 @@ import { formatNumber } from '@/lib/utils';
 import ReceiptEditorKV from './ReceiptEditorKV';
 import { ToastContainer, useToast } from './Toast';
 import ShareMenu from './ShareMenu';
-
-// Legacy ReceiptInfo
-interface LegacyReceiptInfo {
-  hoTenNguoiNhan: string;
-  hoTenNguoiGui: string;
-  donViNguoiNhan: string;
-  donViNguoiGui: string;
-  lyDoNop: string;
-  soTien: number;
-  bangChu: string;
-  ngayThang: string;
-  diaDiem: string;
-}
-
-// New dynamic field structure
-interface DynamicField {
-  id: string;
-  label: string;
-  value: string;
-  type: 'text' | 'textarea' | 'money';
-}
-
-// New ReceiptData structure
-interface NewReceiptData {
-  title: string;
-  fields: DynamicField[];
-  ngayThang: string;
-  diaDiem: string;
-  signatureNguoiNhan?: string;
-  signatureNguoiGui?: string;
-}
-
-interface SignaturePoint {
-  x: number;
-  y: number;
-  time: number;
-  color?: string;
-}
-
-// Combined Receipt type - supports both old and new format
-interface Receipt {
-  id: string;
-  info?: LegacyReceiptInfo;     // Legacy format
-  data?: NewReceiptData;        // New format
-  signaturePoints: SignaturePoint[][] | null;
-  signatureNguoiNhan?: string;
-  signatureNguoiGui?: string;
-  status: 'pending' | 'signed';
-  createdAt: number;
-  signedAt?: number;
-}
+import type { Receipt, ReceiptInfo, ReceiptData, DocumentData } from '@/lib/kv';
 
 interface DashboardProps {
   onLogout: () => void;
@@ -109,7 +59,7 @@ function getReceiptField(receipt: Receipt, fieldId: string): string {
   }
   // Fall back to legacy format
   if (receipt.info) {
-    const legacyValue = receipt.info[fieldId as keyof LegacyReceiptInfo];
+    const legacyValue = receipt.info[fieldId as keyof ReceiptInfo];
     return legacyValue?.toString() || '';
   }
   return '';
