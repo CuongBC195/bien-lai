@@ -70,10 +70,26 @@ function signatureToSVG(signatureData: SignatureData, width = 200, height = 80):
     // Drawn signature - convert points to SVG paths
     const points = signatureData.signaturePoints;
     
+    // 🔒 SECURITY: Filter out empty strokes (prevent invalid signatures)
+    const validStrokes = points.filter(stroke => stroke && stroke.length > 0);
+    
+    if (validStrokes.length === 0) {
+      // All strokes are empty - return "Chưa ký"
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" 
+              fill="#9ca3af" font-size="14" font-family="sans-serif">Chưa ký</text>
+      </svg>`;
+    }
+    
     // Find bounding box
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const stroke of points) {
+    for (const stroke of validStrokes) {
       for (const point of stroke) {
+        // 🔒 SECURITY: Validate point coordinates (prevent NaN/Infinity)
+        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number' || 
+            !isFinite(point.x) || !isFinite(point.y)) {
+          continue;
+        }
         minX = Math.min(minX, point.x);
         minY = Math.min(minY, point.y);
         maxX = Math.max(maxX, point.x);
@@ -81,10 +97,27 @@ function signatureToSVG(signatureData: SignatureData, width = 200, height = 80):
       }
     }
 
+    // 🔒 SECURITY: Check if we found valid bounds
+    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" 
+              fill="#9ca3af" font-size="14" font-family="sans-serif">Chưa ký</text>
+      </svg>`;
+    }
+
     const originalWidth = maxX - minX;
     const originalHeight = maxY - minY;
-    const scaleX = originalWidth > 0 ? (width * 0.8) / originalWidth : 1;
-    const scaleY = originalHeight > 0 ? (height * 0.8) / originalHeight : 1;
+    
+    // Handle zero dimensions (single point signature)
+    if (originalWidth === 0 || originalHeight === 0) {
+      const color = signatureData.color || '#000000';
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <circle cx="${width/2}" cy="${height/2}" r="2" fill="${color}" />
+      </svg>`;
+    }
+    
+    const scaleX = (width * 0.8) / originalWidth;
+    const scaleY = (height * 0.8) / originalHeight;
     const scale = Math.min(scaleX, scaleY);
 
     const scaledWidth = originalWidth * scale;
@@ -92,8 +125,9 @@ function signatureToSVG(signatureData: SignatureData, width = 200, height = 80):
     const offsetX = (width - scaledWidth) / 2 - minX * scale;
     const offsetY = (height - scaledHeight) / 2 - minY * scale;
 
-    const paths = points.map((stroke, i) => {
+    const paths = validStrokes.map((stroke) => {
       const pathData = stroke
+        .filter(point => point && isFinite(point.x) && isFinite(point.y))
         .map((point, j) => {
           const x = point.x * scale + offsetX;
           const y = point.y * scale + offsetY;
@@ -101,9 +135,18 @@ function signatureToSVG(signatureData: SignatureData, width = 200, height = 80):
         })
         .join(' ');
 
+      if (!pathData) return ''; // Skip empty paths
+
       const color = signatureData.color || '#000000';
       return `<path d="${pathData}" stroke="${color}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
-    }).join('\n');
+    }).filter(p => p).join('\n');
+
+    if (!paths) {
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" 
+              fill="#9ca3af" font-size="14" font-family="sans-serif">Chưa ký</text>
+      </svg>`;
+    }
 
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
       ${paths}

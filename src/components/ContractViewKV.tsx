@@ -96,6 +96,25 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
   const handleSignatureComplete = (result: SignatureResult) => {
     if (!currentSignerId) return;
 
+    // 🔒 VALIDATION: Check if signature is actually drawn/typed
+    if (result.type === 'draw') {
+      if (!result.signaturePoints || result.signaturePoints.length === 0) {
+        showToast('⚠️ Vui lòng vẽ chữ ký trước khi lưu!', 'error');
+        return;
+      }
+      // Check if all strokes are empty
+      const hasValidStrokes = result.signaturePoints.some(stroke => stroke.length > 0);
+      if (!hasValidStrokes) {
+        showToast('⚠️ Chữ ký không hợp lệ. Vui lòng vẽ lại!', 'error');
+        return;
+      }
+    } else if (result.type === 'type') {
+      if (!result.typedText || result.typedText.trim() === '') {
+        showToast('⚠️ Vui lòng nhập tên trước khi lưu!', 'error');
+        return;
+      }
+    }
+
     // Store local preview
     setLocalSignatures(prev => ({
       ...prev,
@@ -148,6 +167,38 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
       // Get the actual signature data
       const signatureData = signatureDataMap[signerToSign.id];
+
+      // 🔒 FINAL VALIDATION: Double-check signature data before sending
+      if (!signatureData) {
+        showToast('⚠️ Không tìm thấy dữ liệu chữ ký!', 'error');
+        setSigning(false);
+        return;
+      }
+
+      if (signatureData.type === 'draw') {
+        if (!signatureData.signaturePoints || signatureData.signaturePoints.length === 0) {
+          showToast('⚠️ Chữ ký không hợp lệ. Vui lòng ký lại!', 'error');
+          // Remove invalid signature
+          setSignatureDataMap(prev => {
+            const newMap = { ...prev };
+            delete newMap[signerToSign.id];
+            return newMap;
+          });
+          setLocalSignatures(prev => {
+            const newSigs = { ...prev };
+            delete newSigs[signerToSign.id];
+            return newSigs;
+          });
+          setSigning(false);
+          return;
+        }
+      } else if (signatureData.type === 'type') {
+        if (!signatureData.typedText || signatureData.typedText.trim() === '') {
+          showToast('⚠️ Chữ ký không hợp lệ. Vui lòng nhập tên lại!', 'error');
+          setSigning(false);
+          return;
+        }
+      }
 
       const response = await fetch('/api/receipts/sign', {
         method: 'POST',

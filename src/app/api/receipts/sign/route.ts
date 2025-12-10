@@ -376,25 +376,170 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate signature has content (for contract signatures)
+    // 🔒 CRITICAL: Deep validation for contract signatures
     if (hasContractSignature) {
       const sigData = signatureDataNguoiGui || signatureDataNguoiNhan;
-      if (sigData?.type === 'draw' && (!sigData.signaturePoints || sigData.signaturePoints.length === 0)) {
+      
+      if (!sigData) {
         return NextResponse.json(
           { 
             success: false, 
-            error: 'Please draw your signature before submitting.',
+            error: 'Signature data is missing.',
             code: 'EMPTY_SIGNATURE'
           },
           { status: 400 }
         );
       }
-      if (sigData?.type === 'type' && (!sigData.typedText || sigData.typedText.trim() === '')) {
+
+      // Validate DRAW signature
+      if (sigData.type === 'draw') {
+        // 1. Existence Check
+        if (!sigData.signaturePoints) {
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: 'Signature points are missing. Please draw your signature.',
+              code: 'EMPTY_SIGNATURE'
+            },
+            { status: 400 }
+          );
+        }
+
+        // 2. Type Check
+        if (!Array.isArray(sigData.signaturePoints)) {
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: 'Invalid signature format. Please try again.',
+              code: 'INVALID_SIGNATURE_FORMAT'
+            },
+            { status: 400 }
+          );
+        }
+
+        // 3. Length Check (CRITICAL!)
+        // Filter valid strokes (non-empty)
+        const validStrokes = sigData.signaturePoints.filter(stroke => Array.isArray(stroke) && stroke.length > 0);
+        
+        if (validStrokes.length === 0) {
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: 'Chữ ký trống. Vui lòng vẽ chữ ký của bạn.',
+              code: 'EMPTY_SIGNATURE'
+            },
+            { status: 400 }
+          );
+        }
+
+        // Count total points across all strokes
+        const totalPoints = validStrokes.reduce((sum, stroke) => sum + stroke.length, 0);
+        
+        // Require at least 10 points OR 2 strokes for valid signature
+        const MIN_POINTS = 10;
+        const MIN_STROKES = 2;
+        
+        if (totalPoints < MIN_POINTS && validStrokes.length < MIN_STROKES) {
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: 'Chữ ký quá ngắn hoặc không hợp lệ. Vui lòng ký rõ ràng hơn.',
+              code: 'SIGNATURE_TOO_SHORT',
+              details: {
+                minPoints: MIN_POINTS,
+                minStrokes: MIN_STROKES,
+                actualPoints: totalPoints,
+                actualStrokes: validStrokes.length
+              }
+            },
+            { status: 400 }
+          );
+        }
+
+        // 4. Data Integrity Check
+        for (const stroke of validStrokes) {
+          for (const point of stroke) {
+            if (!point || typeof point !== 'object') {
+              return NextResponse.json(
+                { 
+                  success: false, 
+                  error: 'Invalid signature data structure.',
+                  code: 'INVALID_SIGNATURE_FORMAT'
+                },
+                { status: 400 }
+              );
+            }
+
+            const { x, y } = point;
+
+            // Check if x and y exist and are numbers
+            if (typeof x !== 'number' || typeof y !== 'number') {
+              return NextResponse.json(
+                { 
+                  success: false, 
+                  error: 'Invalid signature coordinates. Please try again.',
+                  code: 'INVALID_SIGNATURE_FORMAT'
+                },
+                { status: 400 }
+              );
+            }
+
+            // Check for Infinity, NaN, or invalid values
+            if (!isFinite(x) || !isFinite(y)) {
+              return NextResponse.json(
+                { 
+                  success: false, 
+                  error: 'Tọa độ chữ ký không hợp lệ (Infinity/NaN). Vui lòng ký lại.',
+                  code: 'INVALID_SIGNATURE_COORDINATES'
+                },
+                { status: 400 }
+              );
+            }
+
+            // Check for suspicious values (all zeros, negative, etc.)
+            if (x < 0 || y < 0 || (x === 0 && y === 0)) {
+              return NextResponse.json(
+                { 
+                  success: false, 
+                  error: 'Chữ ký không hợp lệ. Vui lòng vẽ lại chữ ký của bạn.',
+                  code: 'SUSPICIOUS_SIGNATURE'
+                },
+                { status: 400 }
+              );
+            }
+          }
+        }
+      } 
+      // Validate TYPE signature
+      else if (sigData.type === 'type') {
+        if (!sigData.typedText || typeof sigData.typedText !== 'string' || sigData.typedText.trim() === '') {
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: 'Please type your signature name.',
+              code: 'EMPTY_SIGNATURE'
+            },
+            { status: 400 }
+          );
+        }
+
+        // Minimum length for typed signature
+        if (sigData.typedText.trim().length < 2) {
+          return NextResponse.json(
+            { 
+              success: false, 
+              error: 'Chữ ký quá ngắn. Vui lòng nhập tên đầy đủ.',
+              code: 'SIGNATURE_TOO_SHORT'
+            },
+            { status: 400 }
+          );
+        }
+      } else {
         return NextResponse.json(
           { 
             success: false, 
-            error: 'Please type your signature before submitting.',
-            code: 'EMPTY_SIGNATURE'
+            error: 'Invalid signature type.',
+            code: 'INVALID_SIGNATURE_TYPE'
           },
           { status: 400 }
         );
