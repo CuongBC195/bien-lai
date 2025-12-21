@@ -161,9 +161,20 @@ async function sendEmailNotification(receipt: Receipt, pdfBuffer?: Buffer, recei
   const docType = isContract ? 'Hợp đồng' : 'Biên lai';
   const docTitle = receipt.document?.title || receipt.data?.title || 'Văn bản';
 
+  // 🔄 NEW: Send to document creator (userId) if exists, otherwise send to admin
+  let recipientEmail = process.env.ADMIN_EMAIL;
+  if (receipt.userId) {
+    // Get user email from userId
+    const { getUserById } = await import('@/lib/kv');
+    const user = await getUserById(receipt.userId);
+    if (user && user.email) {
+      recipientEmail = user.email;
+    }
+  }
+
   const mailOptions = {
     from: `"Hệ thống ${docType} điện tử" <${process.env.EMAIL_USER}>`,
-    to: process.env.ADMIN_EMAIL,
+    to: recipientEmail,
     subject: `📝 ${docType} #${receipt.id} - ${info.hoTenNguoiGui || docTitle} đã ký xác nhận`,
     attachments,
     html: `

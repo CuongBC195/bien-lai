@@ -74,13 +74,13 @@ interface ToastContainerProps {
 
 export function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
   return (
-    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2">
+    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2" suppressHydrationWarning>
       {toasts.map((toast, index) => (
         <div
           key={toast.id}
+          className="toast-slide-in"
           style={{ 
             transform: `translateY(${index * 4}px)`,
-            animation: 'slideIn 0.3s ease-out'
           }}
         >
           <Toast
@@ -90,18 +90,6 @@ export function ToastContainer({ toasts, onRemove }: ToastContainerProps) {
           />
         </div>
       ))}
-      <style jsx global>{`
-        @keyframes slideIn {
-          from {
-            opacity: 0;
-            transform: translateX(100%);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0);
-          }
-        }
-      `}</style>
     </div>
   );
 }

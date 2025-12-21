@@ -1,9 +1,23 @@
 import { NextResponse } from 'next/server';
-import { getAllReceipts } from '@/lib/kv';
+import { getAllReceipts, getUserReceipts } from '@/lib/kv';
+import { getCurrentUserId, verifyAuth } from '@/lib/auth';
 
 export async function GET() {
   try {
-    const receipts = await getAllReceipts();
+    // 🔒 SECURITY: Require authentication
+    const userId = await getCurrentUserId();
+    const isAdmin = await verifyAuth();
+    
+    // If not authenticated, return empty array (don't expose any data)
+    if (!isAdmin && !userId) {
+      return NextResponse.json({
+        success: true,
+        receipts: [],
+      });
+    }
+    
+    // Admin sees all receipts, users see only their own
+    const receipts = isAdmin ? await getAllReceipts() : (userId ? await getUserReceipts(userId) : []);
 
     return NextResponse.json({
       success: true,

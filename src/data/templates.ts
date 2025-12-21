@@ -404,3 +404,7 @@ export function getTemplatesByCategory(category: string): ContractTemplate[] {
   return CONTRACT_TEMPLATES.filter((t) => t.category === category);
 }
 
+export function getAllTemplates(): ContractTemplate[] {
+  return CONTRACT_TEMPLATES;
+}
+

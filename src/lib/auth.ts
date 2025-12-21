@@ -11,7 +11,8 @@ const JWT_EXPIRES_IN = '24h'; // 24 hours
 const COOKIE_NAME = 'auth_token';
 
 export interface AuthPayload extends JWTPayload {
-  role: 'admin';
+  role: 'admin' | 'user';
+  userId?: string; // For user role
   iat: number;
   exp: number;
 }
@@ -26,6 +27,21 @@ export async function createToken(): Promise<string> {
     .setProtectedHeader({ alg: JWT_ALGORITHM })
     .setIssuedAt(now)
     .setExpirationTime('24h')
+    .sign(JWT_SECRET);
+  
+  return token;
+}
+
+/**
+ * Create a JWT token for user authentication
+ */
+export async function createUserToken(userId: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  
+  const token = await new SignJWT({ role: 'user' as const, userId })
+    .setProtectedHeader({ alg: JWT_ALGORITHM })
+    .setIssuedAt(now)
+    .setExpirationTime('30d') // Users get 30 days
     .sign(JWT_SECRET);
   
   return token;
@@ -124,6 +140,28 @@ export async function verifyAuth(): Promise<boolean> {
   
   const payload = await verifyToken(token);
   return payload?.role === 'admin';
+}
+
+/**
+ * Verify user authentication from cookies
+ */
+export async function verifyUserAuth(): Promise<AuthPayload | null> {
+  const token = await getTokenFromCookies();
+  if (!token) return null;
+  
+  const payload = await verifyToken(token);
+  if (payload?.role === 'user' && payload.userId) {
+    return payload;
+  }
+  return null;
+}
+
+/**
+ * Get current user ID from cookies
+ */
+export async function getCurrentUserId(): Promise<string | null> {
+  const payload = await verifyUserAuth();
+  return payload?.userId || null;
 }
 
 /**

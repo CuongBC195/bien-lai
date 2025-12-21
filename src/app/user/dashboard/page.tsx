@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Plus, 
   Share2, 
@@ -11,22 +12,16 @@ import {
   CheckCircle2,
   Search,
   Calendar,
-  Receipt as ReceiptIcon,
-  Wallet,
   Clock,
   Loader2,
   Eye,
-  Users
+  Wallet,
+  Receipt as ReceiptIcon,
 } from 'lucide-react';
-import { formatNumber } from '@/lib/utils';
-import ReceiptEditorKV from './ReceiptEditorKV';
-import { ToastContainer, useToast } from './Toast';
-import ShareMenu from './ShareMenu';
-import type { Receipt, ReceiptInfo, ReceiptData, DocumentData } from '@/lib/kv';
-
-interface DashboardProps {
-  onLogout: () => void;
-}
+import { formatVietnameseDate, formatNumber } from '@/lib/utils';
+import { ToastContainer, useToast } from '@/components/Toast';
+import ShareMenu from '@/components/ShareMenu';
+import type { Receipt } from '@/lib/kv';
 
 // Helper: Detect document type
 function getDocumentType(receipt: Receipt): 'contract' | 'receipt' {
@@ -44,60 +39,53 @@ function getDocumentTitle(receipt: Receipt): string {
   return 'Biên nhận tiền';
 }
 
-// Helper function to get field value from receipt (supports both formats)
+// Helper: Get receipt field value
 function getReceiptField(receipt: Receipt, fieldId: string): string {
-  // Contract format
   if (receipt.document) {
-    // For contracts, return empty or specific field if needed
     const signer = receipt.document.signers.find(s => s.role === 'Bên A' || s.role === 'Bên B');
     if (fieldId === 'hoTenNguoiNhan' && signer) return signer.name;
     return '';
   }
-  // Try new receipt format
   if (receipt.data?.fields) {
     const field = receipt.data.fields.find(f => f.id === fieldId);
     if (field) return field.value;
   }
-  // Fall back to legacy format
   if (receipt.info) {
-    const legacyValue = receipt.info[fieldId as keyof ReceiptInfo];
+    const legacyValue = receipt.info[fieldId as keyof typeof receipt.info];
     return legacyValue?.toString() || '';
   }
   return '';
 }
 
-// Helper to get soTien (money amount)
+// Helper: Get receipt amount
 function getReceiptAmount(receipt: Receipt): number {
-  // Contracts don't have simple money field
   if (receipt.document) return 0;
-  
-  // Try new format first
   if (receipt.data?.fields) {
     const moneyField = receipt.data.fields.find(f => f.type === 'money');
     if (moneyField) {
       return parseInt(moneyField.value.replace(/\D/g, '')) || 0;
     }
   }
-  // Fall back to legacy format
   if (receipt.info?.soTien) {
     return receipt.info.soTien;
   }
   return 0;
 }
 
-export default function Dashboard({ onLogout }: DashboardProps) {
+// Helper: Check if document is fully signed (2 signatures)
+function isFullySigned(receipt: Receipt): boolean {
+  if (receipt.document) {
+    const signedCount = receipt.document.signers.filter(s => s.signed).length;
+    return signedCount >= 2;
+  }
+  return receipt.status === 'signed';
+}
+
+export default function UserDashboard() {
+  const router = useRouter();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
-  const [userMap, setUserMap] = useState<Record<string, { name: string; email: string }>>({});
   const [searchTerm, setSearchTerm] = useState('');
-  const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // View receipt state
-  const [viewingReceiptId, setViewingReceiptId] = useState<string | null>(null);
-  
-  // Toast notification
-  const { toasts, showToast, removeToast } = useToast();
   
   // Share menu state
   const [shareMenuOpen, setShareMenuOpen] = useState<string | null>(null);
@@ -110,40 +98,38 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   // Delete confirmation state
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  
+  const { toasts, showToast, removeToast } = useToast();
 
   useEffect(() => {
+    checkAuth();
     loadReceipts();
   }, []);
+
+  const checkAuth = async () => {
+    try {
+      const res = await fetch('/api/user/check');
+      const data = await res.json();
+      if (!data.authenticated || data.role !== 'user') {
+        router.push('/user/login');
+        return;
+      }
+    } catch (error) {
+      router.push('/user/login');
+    }
+  };
 
   const loadReceipts = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/receipts/list');
+      const res = await fetch('/api/user/receipts');
       const data = await res.json();
       if (data.success) {
-        const receiptsList = data.receipts || [];
-        setReceipts(receiptsList);
-        
-        // Load user info for all unique userIds
-        const userIds = [...new Set(receiptsList.map((r: Receipt) => r.userId).filter(Boolean))];
-        if (userIds.length > 0) {
-          try {
-            const userRes = await fetch('/api/admin/users/info', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userIds }),
-            });
-            const userData = await userRes.json();
-            if (userData.success) {
-              setUserMap(userData.users || {});
-            }
-          } catch (error) {
-            console.error('Error loading user info:', error);
-          }
-        }
+        setReceipts(data.receipts || []);
       }
     } catch (error) {
       console.error('Error loading receipts:', error);
+      showToast('Lỗi khi tải danh sách văn bản', 'error');
     } finally {
       setLoading(false);
     }
@@ -151,38 +137,33 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/user/logout', { method: 'POST' });
+      router.push('/user/login');
     } catch (error) {
       console.error('Logout error:', error);
     }
-    sessionStorage.removeItem('isLoggedIn');
-    // Redirect to home page
-    window.location.href = '/';
   };
 
   const handleCreateNew = () => {
-    // Navigate to template library for new creation flow
-    window.location.href = '/admin/create';
+    router.push('/user/create');
   };
 
   const handleEdit = (receipt: Receipt) => {
-    // Admin has full access - can edit anything
-    // Check if it's a contract or receipt
-    if (receipt.document) {
-      // For contracts, open in contract editor
-      // Store contract data in sessionStorage for editor to load
-      sessionStorage.setItem('editingContract', JSON.stringify(receipt));
-      window.location.href = `/admin/editor?edit=${receipt.id}`;
+    // Check if fully signed - prevent editing
+    if (isFullySigned(receipt)) {
+      showToast('Văn bản đã được ký đầy đủ bởi cả 2 bên. Không thể chỉnh sửa.', 'error');
       return;
     }
-    
-    // For legacy receipts, open old editor
-    setEditingReceipt(receipt);
-    setIsEditorOpen(true);
+
+    if (receipt.document) {
+      sessionStorage.setItem('editingContract', JSON.stringify(receipt));
+      router.push(`/user/editor?edit=${receipt.id}`);
+    } else {
+      showToast('Chỉ có thể chỉnh sửa hợp đồng từ đây', 'error');
+    }
   };
 
   const handleView = (receipt: Receipt) => {
-    // Mở link xem chi tiết trong tab mới
     const url = `${window.location.origin}/?id=${receipt.id}`;
     window.open(url, '_blank');
   };
@@ -200,13 +181,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
       const data = await res.json();
       if (data.success) {
         await loadReceipts();
-        showToast('Đã xóa biên nhận thành công', 'success');
+        showToast('Đã xóa văn bản thành công', 'success');
       } else {
-        showToast('Không thể xóa biên nhận', 'error');
+        showToast(data.error || 'Xóa thất bại', 'error');
       }
     } catch (error) {
-      console.error('Error deleting receipt:', error);
-      showToast('Có lỗi xảy ra khi xóa biên nhận', 'error');
+      console.error('Delete error:', error);
+      showToast('Lỗi khi xóa văn bản', 'error');
     } finally {
       setDeleting(false);
       setDeleteConfirmId(null);
@@ -236,74 +217,50 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     setEmailModalOpen(true);
   };
 
-  const handleSendEmail = async () => {
-    if (!selectedReceiptForEmail || !emailAddress) {
+  const sendEmailInvitation = async () => {
+    if (!selectedReceiptForEmail || !emailAddress.trim()) {
       showToast('Vui lòng nhập email', 'error');
       return;
     }
 
     setSendingEmail(true);
     try {
-      const url = `${window.location.origin}/?id=${selectedReceiptForEmail.id}`;
-      const isContract = !!selectedReceiptForEmail.document;
-      const docTitle = getDocumentTitle(selectedReceiptForEmail);
-      const docId = selectedReceiptForEmail.id;
-      
-      // Format subject based on document type
-      const emailSubject = isContract 
-        ? `${docTitle} - ${docId}`
-        : `Biên nhận tiền - ${getReceiptField(selectedReceiptForEmail, 'hoTenNguoiNhan') || 'N/A'}`;
-      
-      // Get signature status to determine who needs to sign
-      const sigNhan = selectedReceiptForEmail.signatureNguoiNhan || selectedReceiptForEmail.data?.signatureNguoiNhan;
-      const sigGui = selectedReceiptForEmail.signatureNguoiGui || selectedReceiptForEmail.data?.signatureNguoiGui;
-      
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin;
+      const signUrl = `${baseUrl}/?id=${selectedReceiptForEmail.id}`;
+
       const res = await fetch('/api/send-invitation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerEmail: emailAddress,
-          customerName: emailAddress.split('@')[0],
-          receiptId: docId,
-          documentData: isContract ? {
-            type: 'contract',
-            title: docTitle,
-            contractNumber: selectedReceiptForEmail.document?.metadata.contractNumber,
-            signers: selectedReceiptForEmail.document?.signers,
-          } : undefined,
-          receiptInfo: !isContract ? (selectedReceiptForEmail.info || selectedReceiptForEmail.data) : undefined,
-          signingUrl: url,
+          customerEmail: emailAddress.trim(),
+          receiptId: selectedReceiptForEmail.id,
+          signingUrl: signUrl,
+          documentData: selectedReceiptForEmail.document,
         }),
       });
 
       const data = await res.json();
       if (data.success) {
-        showToast('Đã gửi email thành công', 'success');
+        showToast('Đã gửi email mời ký', 'success');
         setEmailModalOpen(false);
         setEmailAddress('');
-        setSelectedReceiptForEmail(null);
       } else {
         showToast(data.error || 'Gửi email thất bại', 'error');
       }
     } catch (error) {
-      console.error('Error sending email:', error);
-      showToast('Có lỗi xảy ra khi gửi email', 'error');
+      console.error('Send email error:', error);
+      showToast('Lỗi khi gửi email', 'error');
     } finally {
       setSendingEmail(false);
     }
   };
 
-  const handleEditorClose = () => {
-    setIsEditorOpen(false);
-    setEditingReceipt(null);
-    loadReceipts();
-  };
-
-  const filteredReceipts = receipts.filter(r => 
-    getReceiptField(r, 'hoTenNguoiNhan').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    getReceiptField(r, 'hoTenNguoiGui').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    getReceiptField(r, 'lyDoNop').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredReceipts = receipts.filter((receipt) => {
+    const title = getDocumentTitle(receipt).toLowerCase();
+    const id = receipt.id.toLowerCase();
+    const search = searchTerm.toLowerCase();
+    return title.includes(search) || id.includes(search);
+  });
 
   const formatDate = (timestamp: number) => {
     try {
@@ -319,18 +276,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
     }
   };
 
-  if (isEditorOpen) {
-    return (
-      <ReceiptEditorKV
-        receipt={editingReceipt}
-        onSave={handleEditorClose}
-        onCancel={handleEditorClose}
-      />
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gradient-glass">
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+
       {/* Header */}
       <header className="glass border-b border-white/20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -344,26 +293,17 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 <FileText className="w-5 h-5 text-white" />
               </button>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Quản lý Biên nhận</h1>
-                <p className="text-sm text-gray-500">Dashboard Admin</p>
+                <h1 className="text-xl font-bold text-gray-900">Quản lý Văn bản</h1>
+                <p className="text-sm text-gray-500">Dashboard User</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <a
-                href="/admin/users"
-                className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 glass-button-outline rounded-xl transition-all"
-              >
-                <Users className="w-5 h-5" />
-                <span className="hidden sm:inline">Quản lý User</span>
-              </a>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 glass-button-outline rounded-xl transition-all"
-              >
-                <LogOut className="w-5 h-5" />
-                <span className="hidden sm:inline">Đăng xuất</span>
-              </button>
-            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900 glass-button-outline rounded-xl transition-all"
+            >
+              <LogOut className="w-5 h-5" />
+              <span className="hidden sm:inline">Đăng xuất</span>
+            </button>
           </div>
         </div>
       </header>
@@ -376,7 +316,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Tìm kiếm biên nhận..."
+              placeholder="Tìm kiếm văn bản..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-12 pr-4 py-3 glass-input rounded-xl"
@@ -410,7 +350,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <p className="text-sm text-gray-500 font-medium">Đã ký</p>
             </div>
             <p className="text-3xl font-bold text-gray-900">
-              {receipts.filter(r => r.status === 'signed').length}
+              {receipts.filter(r => isFullySigned(r)).length}
             </p>
           </div>
         </div>
@@ -427,10 +367,10 @@ export default function Dashboard({ onLogout }: DashboardProps) {
               <FileText className="w-10 h-10 text-gray-400" />
             </div>
             <h3 className="text-lg font-semibold text-gray-700 mb-2">
-              {searchTerm ? 'Không tìm thấy biên nhận' : 'Chưa có biên nhận nào'}
+              {searchTerm ? 'Không tìm thấy văn bản' : 'Chưa có văn bản nào'}
             </h3>
             <p className="text-gray-500 mb-6">
-              {searchTerm ? 'Thử tìm với từ khóa khác' : 'Bắt đầu bằng cách tạo biên nhận mới'}
+              {searchTerm ? 'Thử tìm với từ khóa khác' : 'Bắt đầu bằng cách tạo văn bản mới'}
             </p>
             {!searchTerm && (
               <button
@@ -438,86 +378,12 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 className="inline-flex items-center gap-2 px-6 py-3 glass-button rounded-xl font-medium"
               >
                 <Plus className="w-5 h-5" />
-                Tạo biên nhận đầu tiên
+                Tạo văn bản đầu tiên
               </button>
             )}
           </div>
         ) : (
           <div className="glass-card rounded-2xl overflow-hidden">
-            {/* Mobile view - Cards */}
-            <div className="block sm:hidden divide-y divide-gray-100">
-              {filteredReceipts.map((receipt) => (
-                <div key={receipt.id} className="p-4">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <p className="font-medium text-gray-900">{getReceiptField(receipt, 'hoTenNguoiNhan') || 'N/A'}</p>
-                      <p className="text-xs text-gray-500">{getReceiptField(receipt, 'donViNguoiNhan') || '-'}</p>
-                    </div>
-                    {receipt.status === 'signed' ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                        <CheckCircle2 className="w-3 h-3" />
-                        Đã ký
-                      </span>
-                    ) : receipt.viewedAt ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
-                        <Eye className="w-3 h-3" />
-                        Đã xem
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
-                        <Clock className="w-3 h-3" />
-                        Chưa xem
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="font-semibold text-gray-900">
-                      {formatNumber(getReceiptAmount(receipt))} ₫
-                    </span>
-                    <span className="text-xs text-gray-400">{formatDate(receipt.createdAt)}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleView(receipt)}
-                      className="flex-1 flex items-center justify-center gap-1 p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors text-sm"
-                    >
-                      <Eye className="w-4 h-4" />
-                      Xem
-                    </button>
-                    <button
-                      onClick={(e) => handleShareClick(receipt, e)}
-                      className="flex-1 flex items-center justify-center gap-1 p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
-                    >
-                      <Share2 className="w-4 h-4" />
-                      Chia sẻ
-                    </button>
-                    {shareMenuOpen === receipt.id && (
-                      <ShareMenu
-                        isOpen={true}
-                        onClose={() => setShareMenuOpen(null)}
-                        onCopyLink={() => handleCopyLink(receipt)}
-                        onSendEmail={() => handleSendEmailClick(receipt)}
-                        position={shareMenuPosition}
-                      />
-                    )}
-                    <button
-                      onClick={() => handleEdit(receipt)}
-                      className="flex-1 flex items-center justify-center gap-1 p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                      Sửa
-                    </button>
-                    <button
-                      onClick={() => handleDelete(receipt.id)}
-                      className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
             {/* Desktop view - Table */}
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full">
@@ -525,7 +391,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   <tr>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Tiêu đề</th>
-                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">User tạo</th>
+                    <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Bên ký</th>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Trạng thái</th>
                     <th className="px-5 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Ngày tạo</th>
                     <th className="px-5 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Thao tác</th>
@@ -564,25 +430,20 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                       </td>
                       <td className="px-5 py-4">
                         <div>
-                          {receipt.userId ? (
-                            userMap[receipt.userId] ? (
-                              <>
-                                <p className="font-medium text-gray-900">{userMap[receipt.userId].name}</p>
-                                <p className="text-sm text-gray-500">{userMap[receipt.userId].email}</p>
-                              </>
-                            ) : (
-                              <>
-                                <p className="font-medium text-gray-900">User</p>
-                                <p className="text-sm text-gray-500">{receipt.userId}</p>
-                              </>
-                            )
-                          ) : (
-                            <p className="text-sm text-gray-400 italic">Admin</p>
-                          )}
+                          <p className="font-medium text-gray-900">
+                            {isContract 
+                              ? (receipt.document?.signers[0]?.name || '-')
+                              : (getReceiptField(receipt, 'hoTenNguoiGui') || 'N/A')}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            {isContract 
+                              ? (receipt.document?.signers[0]?.organization || '-')
+                              : (getReceiptField(receipt, 'donViNguoiGui') || '-')}
+                          </p>
                         </div>
                       </td>
                       <td className="px-5 py-4">
-                        {receipt.status === 'signed' ? (
+                        {isFullySigned(receipt) ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Đã ký
@@ -637,8 +498,13 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                           )}
                           <button
                             onClick={() => handleEdit(receipt)}
-                            className="p-2.5 hover:bg-gray-100 text-gray-500 hover:text-gray-900 rounded-xl transition-all"
-                            title="Chỉnh sửa"
+                            disabled={isFullySigned(receipt)}
+                            className={`p-2.5 rounded-xl transition-all ${
+                              isFullySigned(receipt)
+                                ? 'text-gray-300 cursor-not-allowed'
+                                : 'hover:bg-gray-100 text-gray-500 hover:text-gray-900'
+                            }`}
+                            title={isFullySigned(receipt) ? 'Văn bản đã ký đầy đủ, không thể chỉnh sửa' : 'Chỉnh sửa'}
                           >
                             <Edit3 className="w-5 h-5" />
                           </button>
@@ -657,6 +523,82 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile view - Cards */}
+            <div className="block sm:hidden divide-y divide-gray-100">
+              {filteredReceipts.map((receipt) => (
+                <div key={receipt.id} className="p-4">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="font-medium text-gray-900">{getDocumentTitle(receipt)}</p>
+                      <p className="text-xs text-gray-500">{receipt.id}</p>
+                    </div>
+                    {isFullySigned(receipt) ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Đã ký
+                      </span>
+                    ) : receipt.viewedAt ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs font-medium">
+                        <Eye className="w-3 h-3" />
+                        Đã xem
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+                        <Clock className="w-3 h-3" />
+                        Chưa xem
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xs text-gray-400">{formatDate(receipt.createdAt)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleView(receipt)}
+                      className="flex-1 flex items-center justify-center gap-1 p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors text-sm"
+                    >
+                      <Eye className="w-4 h-4" />
+                      Xem
+                    </button>
+                    <button
+                      onClick={(e) => handleShareClick(receipt, e)}
+                      className="flex-1 flex items-center justify-center gap-1 p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors text-sm"
+                    >
+                      <Share2 className="w-4 h-4" />
+                      Chia sẻ
+                    </button>
+                    {shareMenuOpen === receipt.id && (
+                      <ShareMenu
+                        isOpen={true}
+                        onClose={() => setShareMenuOpen(null)}
+                        onCopyLink={() => handleCopyLink(receipt)}
+                        onSendEmail={() => handleSendEmailClick(receipt)}
+                        position={shareMenuPosition}
+                      />
+                    )}
+                    <button
+                      onClick={() => handleEdit(receipt)}
+                      disabled={isFullySigned(receipt)}
+                      className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-lg text-sm transition-colors ${
+                        isFullySigned(receipt)
+                          ? 'bg-gray-100 text-gray-300 cursor-not-allowed'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      Sửa
+                    </button>
+                    <button
+                      onClick={() => handleDelete(receipt.id)}
+                      className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -669,7 +611,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   <Trash2 className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">Xóa biên nhận?</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Xóa văn bản?</h3>
                   <p className="text-sm text-gray-500">Link chia sẻ sẽ không còn hoạt động</p>
                 </div>
               </div>
@@ -705,7 +647,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             <div className="bg-white rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Gửi email mời ký</h3>
               <p className="text-sm text-gray-500 mb-4">
-                Biên nhận: <span className="font-medium">{selectedReceiptForEmail?.id}</span>
+                Văn bản: <span className="font-medium">{selectedReceiptForEmail?.id}</span>
               </p>
               <input
                 type="email"
@@ -726,7 +668,7 @@ export default function Dashboard({ onLogout }: DashboardProps) {
                   Hủy
                 </button>
                 <button
-                  onClick={handleSendEmail}
+                  onClick={sendEmailInvitation}
                   disabled={sendingEmail || !emailAddress}
                   className="flex-1 px-4 py-2.5 bg-black text-white rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >

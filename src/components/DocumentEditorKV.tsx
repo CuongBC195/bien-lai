@@ -17,6 +17,7 @@ import {
 import { formatVietnameseDate } from '@/lib/utils';
 import SignatureModal, { SignatureResult, SignaturePoint } from './SignatureModal';
 import { ToastContainer, useToast } from './Toast';
+import TipTapEditor from './TipTapEditor';
 import type { ContractTemplate } from '@/data/templates';
 import type { Signer, SignatureData } from '@/lib/kv';
 
@@ -92,11 +93,10 @@ export default function DocumentEditorKV({
   initialData,
   mode = 'create',
 }: DocumentEditorKVProps) {
-  const contentRef = useRef<HTMLDivElement>(null);
   const { toasts, showToast, removeToast } = useToast();
 
-  // Preview mode
-  const [showPreview, setShowPreview] = useState(false);
+  // Preview mode - removed, always show live preview
+  const showPreview = false;
 
   // Document data
   const [title, setTitle] = useState(
@@ -156,17 +156,9 @@ export default function DocumentEditorKV({
   // Saving state
   const [isSaving, setIsSaving] = useState(false);
 
-  // Auto-resize content editable
-  useEffect(() => {
-    if (contentRef.current) {
-      contentRef.current.innerHTML = content;
-    }
-  }, []);
-
-  const handleContentChange = () => {
-    if (contentRef.current) {
-      setContent(contentRef.current.innerHTML);
-    }
+  // Handle content change from TipTap
+  const handleContentChange = (html: string) => {
+    setContent(html);
   };
 
   const handleSignerChange = (index: number, field: keyof Signer, value: any) => {
@@ -373,11 +365,8 @@ export default function DocumentEditorKV({
 
             {/* Content Editor */}
             <div className="glass-card rounded-2xl p-6">
-              <div className="mb-4 flex items-center justify-between">
+              <div className="mb-4">
                 <h3 className="font-bold text-gray-900">Nội dung văn bản</h3>
-                <span className="text-xs text-gray-500">
-                  Hỗ trợ định dạng HTML cơ bản
-                </span>
               </div>
 
               {/* Live Preview với Header + Content + Footer */}
@@ -400,31 +389,16 @@ export default function DocumentEditorKV({
                   <p>{createdDate}, tại {location}</p>
                 </div>
 
-                {/* Editable Content */}
-                <div
-                  ref={contentRef}
-                  contentEditable={!showPreview}
-                  onInput={handleContentChange}
-                  className={`min-h-[400px] p-6 transition-all ${
-                    showPreview
-                      ? 'bg-white'
-                      : 'focus:outline-none focus:ring-2 focus:ring-blue-300'
-                  }`}
-                  style={{
-                    fontFamily: 'var(--font-tinos), serif',
-                    fontSize: '15px',
-                    lineHeight: '1.8',
-                  }}
+                {/* Rich Text Editor - TipTap */}
+                <TipTapEditor
+                  content={content || '<p></p>'}
+                  onChange={handleContentChange}
+                  placeholder="Nhập nội dung văn bản..."
                 />
 
-                {/* Footer - Live Preview Signatures */}
-                <div className="px-6 pb-6 pt-4 bg-green-50/30 border-t border-green-100">
-                  <p className="text-xs text-green-700 mb-4 font-medium flex items-center gap-1">
-                    <AlertCircle className="w-4 h-4" />
-                    Preview chữ ký (Real-time)
-                  </p>
-                  
-                  <div className="text-center mb-4 text-sm" style={{ fontFamily: 'var(--font-tinos), serif' }}>
+                {/* Footer - Signatures */}
+                <div className="px-6 pb-6 pt-4 border-t border-gray-200">
+                  <div className="text-left mb-4 text-sm" style={{ fontFamily: 'var(--font-tinos), serif' }}>
                     <p className="italic">{location}, {createdDate}</p>
                   </div>
 
@@ -500,12 +474,33 @@ export default function DocumentEditorKV({
                         {signer.role}
                       </span>
                       {signer.signed ? (
-                        <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-lg">
-                          ✓ Đã ký
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-lg">
+                            ✓ Đã ký
+                          </span>
+                          {/* Only allow re-sign if in create mode and not saved yet */}
+                          {mode === 'create' && (
+                            <button
+                              onClick={() => {
+                                setCurrentSignerIndex(index);
+                                setIsSignatureModalOpen(true);
+                              }}
+                              className="text-xs px-2 py-1 bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 transition-colors flex items-center gap-1"
+                              title="Ký lại (chỉ khi chưa lưu)"
+                            >
+                              <PenLine className="w-3 h-3" />
+                              Ký lại
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <button
                           onClick={() => {
+                            // Only allow signing in create mode
+                            if (mode === 'edit') {
+                              showToast('Không thể ký khi đang chỉnh sửa. Vui lòng lưu và gửi link cho người ký.', 'error');
+                              return;
+                            }
                             setCurrentSignerIndex(index);
                             setIsSignatureModalOpen(true);
                           }}
@@ -529,15 +524,6 @@ export default function DocumentEditorKV({
               </div>
             </div>
 
-            {/* Help Text */}
-            <div className="p-4 bg-yellow-50 border border-yellow-100 rounded-xl">
-              <p className="text-xs text-yellow-800 font-medium mb-2">💡 Lưu ý</p>
-              <ul className="text-xs text-yellow-700 space-y-1">
-                <li>• Có thể ký trước cho admin (tùy chọn)</li>
-                <li>• Hoặc gửi link cho khách hàng ký sau</li>
-                <li>• Chữ ký sẽ xuất hiện trong file PDF</li>
-              </ul>
-            </div>
           </div>
         </div>
       </div>

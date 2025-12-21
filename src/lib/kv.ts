@@ -123,11 +123,29 @@ export interface Receipt {
   signedAt?: number;
   viewedAt?: number; // NEW: Tracking when customer first viewed
   pdfUrl?: string; // NEW: URL của file PDF đã tạo (nếu có)
+  userId?: string; // NEW: User who created this document (undefined = admin)
+}
+
+// User interface
+export interface User {
+  id: string;
+  email: string;
+  passwordHash: string;
+  name: string;
+  emailVerified: boolean;
+  emailVerificationToken?: string;
+  emailVerificationExpiry?: number;
+  createdAt: number;
+  lastLoginAt?: number;
 }
 
 // Redis Keys
 const RECEIPT_KEY = (id: string) => `receipt:${id}`;
 const ADMIN_LIST_KEY = 'admin:receipt_ids';
+const USER_KEY = (id: string) => `user:${id}`;
+const USER_EMAIL_KEY = (email: string) => `user:email:${email.toLowerCase()}`;
+const USER_LIST_KEY = 'users:list';
+const USER_RECEIPTS_KEY = (userId: string) => `user:${userId}:receipt_ids`;
 
 // CRUD Operations
 
@@ -136,7 +154,8 @@ export async function createReceipt(
   infoOrData: ReceiptInfo | ReceiptData | DocumentData,
   signaturePoints?: SignaturePoint[][] | null,
   signatureNguoiNhan?: string,
-  signatureNguoiGui?: string
+  signatureNguoiGui?: string,
+  userId?: string // NEW: Optional user ID
 ): Promise<Receipt> {
   const id = createReceiptId();
   const redis = getRedis();
@@ -162,13 +181,19 @@ export async function createReceipt(
     signatureDataNguoiGui: isNewReceiptFormat ? (infoOrData as ReceiptData).signatureDataNguoiGui : undefined,
     status: 'pending',
     createdAt: Date.now(),
+    userId, // NEW: Store user ID
   };
 
   // Lưu receipt
   await redis.set(RECEIPT_KEY(id), JSON.stringify(receipt));
   
-  // Thêm ID vào list admin (thêm vào đầu)
+  // Thêm ID vào list admin (thêm vào đầu) - Admin luôn xem được tất cả
   await redis.lpush(ADMIN_LIST_KEY, id);
+  
+  // Nếu có userId, thêm vào user's receipt list
+  if (userId) {
+    await redis.lpush(USER_RECEIPTS_KEY(userId), id);
+  }
 
   return receipt;
 }
@@ -245,6 +270,106 @@ export async function getAllReceipts(): Promise<Receipt[]> {
 
   // Filter out null values (deleted receipts)
   return receipts.filter((r): r is Receipt => r !== null);
+}
+
+// Get receipts for a specific user
+export async function getUserReceipts(userId: string): Promise<Receipt[]> {
+  const redis = getRedis();
+  const ids = await redis.lrange(USER_RECEIPTS_KEY(userId), 0, -1);
+  if (ids.length === 0) return [];
+
+  const receipts = await Promise.all(
+    ids.map((id) => getReceipt(id))
+  );
+
+  return receipts.filter((r): r is Receipt => r !== null);
+}
+
+// User CRUD Operations
+export async function createUser(email: string, passwordHash: string, name: string, verificationToken: string): Promise<User> {
+  const redis = getRedis();
+  const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  const user: User = {
+    id: userId,
+    email: email.toLowerCase(),
+    passwordHash,
+    name,
+    emailVerified: false,
+    emailVerificationToken: verificationToken,
+    emailVerificationExpiry: Date.now() + (24 * 60 * 60 * 1000), // 24 hours
+    createdAt: Date.now(),
+  };
+
+  await redis.set(USER_KEY(userId), JSON.stringify(user));
+  await redis.set(USER_EMAIL_KEY(email.toLowerCase()), userId);
+  await redis.lpush(USER_LIST_KEY, userId);
+
+  return user;
+}
+
+export async function getUserById(id: string): Promise<User | null> {
+  const redis = getRedis();
+  const data = await redis.get(USER_KEY(id));
+  if (!data) return null;
+  return JSON.parse(data) as User;
+}
+
+export async function getUserByEmail(email: string): Promise<User | null> {
+  const redis = getRedis();
+  const userId = await redis.get(USER_EMAIL_KEY(email.toLowerCase()));
+  if (!userId) return null;
+  return getUserById(userId);
+}
+
+export async function updateUser(id: string, updates: Partial<User>): Promise<User | null> {
+  const user = await getUserById(id);
+  if (!user) return null;
+
+  const redis = getRedis();
+  const updated = { ...user, ...updates };
+  await redis.set(USER_KEY(id), JSON.stringify(updated));
+  
+  // Update email index if email changed
+  if (updates.email && updates.email !== user.email) {
+    await redis.del(USER_EMAIL_KEY(user.email));
+    await redis.set(USER_EMAIL_KEY(updates.email.toLowerCase()), id);
+  }
+
+  return updated;
+}
+
+export async function deleteUserReceipt(userId: string, receiptId: string): Promise<void> {
+  const redis = getRedis();
+  await redis.lrem(USER_RECEIPTS_KEY(userId), 0, receiptId);
+}
+
+export async function getAllUsers(): Promise<User[]> {
+  const redis = getRedis();
+  const userIds = await redis.lrange(USER_LIST_KEY, 0, -1);
+  if (userIds.length === 0) return [];
+
+  const users = await Promise.all(
+    userIds.map((id) => getUserById(id))
+  );
+
+  return users.filter((u): u is User => u !== null);
+}
+
+export async function deleteUser(userId: string): Promise<boolean> {
+  const redis = getRedis();
+  const user = await getUserById(userId);
+  if (!user) return false;
+
+  // Delete user
+  await redis.del(USER_KEY(userId));
+  await redis.del(USER_EMAIL_KEY(user.email));
+  await redis.lrem(USER_LIST_KEY, 0, userId);
+
+  // Delete user's receipts list (but keep receipts themselves)
+  await redis.del(USER_RECEIPTS_KEY(userId));
+
+  return true;
 }
 
 export { getRedis as getRedisClient };

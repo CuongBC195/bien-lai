@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createReceipt, ReceiptInfo, ReceiptData, DocumentData, SignaturePoint, SignatureData } from '@/lib/kv';
+import { getCurrentUserId } from '@/lib/auth';
 
 interface CreateReceiptRequest {
   // Support both old and new format
@@ -29,12 +30,16 @@ export async function POST(request: NextRequest) {
     // Determine which format to use
     const receiptData = document || data || info;
     
+    // Get user ID (if user is logged in, otherwise undefined = admin)
+    const userId = await getCurrentUserId();
+    
     // Create receipt with base64 previews
     const receipt = await createReceipt(
       receiptData!, 
       signaturePoints, 
       signatureNguoiNhan || data?.signatureNguoiNhan,
-      signatureNguoiGui || data?.signatureNguoiGui
+      signatureNguoiGui || data?.signatureNguoiGui,
+      userId || undefined // Pass userId (convert null to undefined)
     );
     
     // If SignatureData was provided, update the receipt with it
