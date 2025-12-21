@@ -8,9 +8,7 @@ const ADMIN_ROUTES = [
   '/admin/create',
   '/admin/editor',
   '/admin/users',
-  '/api/receipts/create',
   '/api/receipts/delete',
-  '/api/receipts/update',
   '/api/receipts/list',
   '/api/admin/users',
 ];
@@ -21,6 +19,12 @@ const USER_ROUTES = [
   '/user/create',
   '/user/editor',
   '/api/user/receipts',
+];
+
+// Routes that require authentication (either admin or user)
+const AUTHENTICATED_ROUTES = [
+  '/api/receipts/create',
+  '/api/receipts/update',
 ];
 
 // Public API routes (no auth needed)
@@ -50,9 +54,10 @@ export async function middleware(request: NextRequest) {
   // Check if the route requires admin authentication
   const isAdminRoute = ADMIN_ROUTES.some(route => pathname.startsWith(route));
   const isUserRoute = USER_ROUTES.some(route => pathname.startsWith(route));
+  const isAuthenticatedRoute = AUTHENTICATED_ROUTES.some(route => pathname.startsWith(route));
   
   // Skip if not a protected route
-  if (!isAdminRoute && !isUserRoute) {
+  if (!isAdminRoute && !isUserRoute && !isAuthenticatedRoute) {
     return NextResponse.next();
   }
   
@@ -109,6 +114,19 @@ export async function middleware(request: NextRequest) {
       );
     }
     return NextResponse.redirect(new URL('/user/login', request.url));
+  }
+  
+  // For authenticated routes (create/update), allow both admin and user
+  if (isAuthenticatedRoute) {
+    if (payload.role !== 'admin' && payload.role !== 'user') {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { success: false, error: 'Unauthorized - Authentication required' },
+          { status: 403 }
+        );
+      }
+      return NextResponse.redirect(new URL('/user/login', request.url));
+    }
   }
   
   // Token is valid and role matches, continue
