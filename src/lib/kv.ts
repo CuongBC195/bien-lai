@@ -245,11 +245,20 @@ export async function signReceipt(
 
 export async function deleteReceipt(id: string): Promise<boolean> {
   const redis = getRedis();
+  
+  // Get receipt to check userId before deleting
+  const receipt = await getReceipt(id);
+  
   // Xóa receipt
   await redis.del(RECEIPT_KEY(id));
   
   // Xóa khỏi list admin
   await redis.lrem(ADMIN_LIST_KEY, 0, id);
+  
+  // Xóa khỏi list user nếu có userId
+  if (receipt?.userId) {
+    await redis.lrem(USER_RECEIPTS_KEY(receipt.userId), 0, id);
+  }
 
   return true;
 }

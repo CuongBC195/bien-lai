@@ -8,7 +8,6 @@ const ADMIN_ROUTES = [
   '/admin/create',
   '/admin/editor',
   '/admin/users',
-  '/api/receipts/delete',
   '/api/receipts/list',
   '/api/admin/users',
 ];
@@ -25,6 +24,7 @@ const USER_ROUTES = [
 const AUTHENTICATED_ROUTES = [
   '/api/receipts/create',
   '/api/receipts/update',
+  '/api/receipts/delete',
 ];
 
 // Public API routes (no auth needed)

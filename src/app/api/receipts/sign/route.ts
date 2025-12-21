@@ -117,7 +117,12 @@ function extractReceiptInfo(receipt: Receipt): {
 }
 
 // Send Email notification - with PDF for contracts, image for legacy receipts
-async function sendEmailNotification(receipt: Receipt, pdfBuffer?: Buffer, receiptImageBase64?: string): Promise<void> {
+async function sendEmailNotification(
+  receipt: Receipt, 
+  pdfBuffer?: Buffer, 
+  receiptImageBase64?: string,
+  customerEmail?: string
+): Promise<void> {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -161,20 +166,37 @@ async function sendEmailNotification(receipt: Receipt, pdfBuffer?: Buffer, recei
   const docType = isContract ? 'Hợp đồng' : 'Biên lai';
   const docTitle = receipt.document?.title || receipt.data?.title || 'Văn bản';
 
-  // 🔄 NEW: Send to document creator (userId) if exists, otherwise send to admin
-  let recipientEmail = process.env.ADMIN_EMAIL;
+  // Collect all recipient emails
+  const recipientEmails: string[] = [];
+  
+  // 1. Add document creator email (if exists)
   if (receipt.userId) {
-    // Get user email from userId
     const { getUserById } = await import('@/lib/kv');
     const user = await getUserById(receipt.userId);
     if (user && user.email) {
-      recipientEmail = user.email;
+      recipientEmails.push(user.email);
     }
+  }
+  
+  // 2. Add admin email (fallback if no creator)
+  if (process.env.ADMIN_EMAIL && !recipientEmails.includes(process.env.ADMIN_EMAIL)) {
+    recipientEmails.push(process.env.ADMIN_EMAIL);
+  }
+  
+  // 3. Add customer email (if provided and different from creator)
+  if (customerEmail && !recipientEmails.includes(customerEmail)) {
+    recipientEmails.push(customerEmail);
+  }
+
+  // If no recipients, skip sending
+  if (recipientEmails.length === 0) {
+    console.warn('No recipient emails found, skipping email notification');
+    return;
   }
 
   const mailOptions = {
     from: `"Hệ thống ${docType} điện tử" <${process.env.EMAIL_USER}>`,
-    to: recipientEmail,
+    to: recipientEmails.join(', '), // Send to all recipients
     subject: `📝 ${docType} #${receipt.id} - ${info.hoTenNguoiGui || docTitle} đã ký xác nhận`,
     attachments,
     html: `
@@ -598,6 +620,7 @@ export async function POST(request: NextRequest) {
     const isContract = !!receipt.document;
     let updatedReceipt: Receipt;
     let pdfBuffer: Buffer | undefined;
+    let customerEmail: string | undefined; // Email of the customer who signed
 
     if (isContract && receipt.document) {
       // CONTRACT FLOW: Use signature data API
@@ -623,6 +646,9 @@ export async function POST(request: NextRequest) {
             { status: 403 }
           );
         }
+
+        // Get customer email from the signer before updating
+        customerEmail = currentSigner.email;
 
         const updatedSigners = [...receipt.document.signers];
         updatedSigners[signerIndex] = {
@@ -726,9 +752,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Send notifications
+    // Send notifications (include customer email if available)
     const notificationResults = await Promise.allSettled([
-      sendEmailNotification(updatedReceipt, pdfBuffer, receiptImage),
+      sendEmailNotification(updatedReceipt, pdfBuffer, receiptImage, customerEmail),
       sendTelegramNotification(updatedReceipt, pdfBuffer, receiptImage),
     ]);
 
