@@ -73,7 +73,7 @@ export function getAuthCookieOptions() {
     name: COOKIE_NAME,
     httpOnly: true,
     secure: isProduction,
-    sameSite: (isProduction ? 'none' : 'lax') as const, // 'none' for cross-site, 'lax' for same-site
+    sameSite: (isProduction ? 'none' : 'lax') as 'none' | 'lax' | 'strict', // 'none' for cross-site, 'lax' for same-site
     maxAge: 60 * 60 * 24, // 24 hours in seconds
     path: '/',
   };
