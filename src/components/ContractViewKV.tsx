@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   FileDown,
   PenLine,
@@ -13,7 +13,109 @@ import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 import SignatureModal, { SignatureResult } from './SignatureModal';
 import { ToastContainer, useToast } from './Toast';
-import type { Receipt, Signer, SignatureData } from '@/lib/kv';
+import type { Receipt, Signer, SignatureData
+} from '@/lib/kv';
+
+/**
+ * Client-side function to convert SignatureData to base64 data URL
+ * This allows displaying signatures that were saved on server
+ */
+function signatureDataToDataUrl(signatureData: SignatureData | undefined, width = 200, height = 80): string | null {
+  if (!signatureData) return null;
+
+  if (signatureData.type === 'type' && signatureData.typedText) {
+    // Typed signature - create SVG with text
+    const fontFamily = signatureData.fontFamily || 'Dancing Script, cursive';
+    const color = signatureData.color || '#000000';
+    const escapedText = signatureData.typedText
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <rect width="100%" height="100%" fill="#ffffff"/>
+      <text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" 
+            fill="${color}" font-size="28" font-family="${fontFamily}">
+        ${escapedText}
+      </text>
+    </svg>`;
+    
+    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
+  }
+  
+  if (signatureData.type === 'draw' && signatureData.signaturePoints && signatureData.signaturePoints.length > 0) {
+    // Drawn signature - convert points to SVG paths
+    const points = signatureData.signaturePoints;
+    
+    // Filter out empty strokes
+    const validStrokes = points.filter(stroke => stroke && stroke.length > 0);
+    if (validStrokes.length === 0) return null;
+    
+    // Find bounding box
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const stroke of validStrokes) {
+      for (const point of stroke) {
+        if (!point || typeof point.x !== 'number' || typeof point.y !== 'number') continue;
+        minX = Math.min(minX, point.x);
+        minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x);
+        maxY = Math.max(maxY, point.y);
+      }
+    }
+
+    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) return null;
+
+    const originalWidth = maxX - minX;
+    const originalHeight = maxY - minY;
+    
+    if (originalWidth === 0 && originalHeight === 0) {
+      // Single point
+      const color = signatureData.color || '#000000';
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+        <rect width="100%" height="100%" fill="#ffffff"/>
+        <circle cx="${width/2}" cy="${height/2}" r="2" fill="${color}" />
+      </svg>`;
+      return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
+    }
+    
+    const padding = 10;
+    const scaleX = (width - padding * 2) / (originalWidth || 1);
+    const scaleY = (height - padding * 2) / (originalHeight || 1);
+    const scale = Math.min(scaleX, scaleY);
+
+    const scaledWidth = originalWidth * scale;
+    const scaledHeight = originalHeight * scale;
+    const offsetX = (width - scaledWidth) / 2 - minX * scale;
+    const offsetY = (height - scaledHeight) / 2 - minY * scale;
+
+    const paths = validStrokes.map((stroke) => {
+      const pathData = stroke
+        .filter(point => point && isFinite(point.x) && isFinite(point.y))
+        .map((point, j) => {
+          const x = point.x * scale + offsetX;
+          const y = point.y * scale + offsetY;
+          return j === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
+        })
+        .join(' ');
+
+      if (!pathData) return '';
+
+      const color = signatureData.color || '#000000';
+      return `<path d="${pathData}" stroke="${color}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }).filter(p => p).join('\n');
+
+    if (!paths) return null;
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+      <rect width="100%" height="100%" fill="#ffffff"/>
+      ${paths}
+    </svg>`;
+    
+    return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
+  }
+
+  return null;
+}
 
 interface ContractViewKVProps {
   receiptId: string;
@@ -383,8 +485,13 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
             <div className={`grid gap-8 ${contract.signers.length > 2 ? 'grid-cols-2' : `grid-cols-${contract.signers.length}`}`}>
               {contract.signers.map((signer) => {
-                const hasSignature = signer.signed || localSignatures[signer.id];
-                const signaturePreview = localSignatures[signer.id] || (signer.signatureData?.typedText ? `data:text,${signer.signatureData.typedText}` : null);
+                // Check if this signer has signature (either from server or local)
+                const hasLocalSignature = !!localSignatures[signer.id];
+                const hasServerSignature = signer.signed && signer.signatureData;
+                const hasSignature = hasLocalSignature || hasServerSignature;
+                
+                // Get signature preview - prioritize local, then render from server data
+                const signaturePreview = localSignatures[signer.id] || signatureDataToDataUrl(signer.signatureData);
 
                 return (
                   <div key={signer.id} className="text-center">

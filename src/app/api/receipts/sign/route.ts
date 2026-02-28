@@ -194,97 +194,147 @@ async function sendEmailNotification(
     return;
   }
 
+  // Plain text version for spam prevention
+  const plainText = `
+${docType.toUpperCase()} ĐÃ ĐƯỢC KÝ XÁC NHẬN
+
+${isContract ? 'Mã hợp đồng' : 'Mã biên lai'}: ${receipt.id}
+${isContract ? `Tiêu đề: ${docTitle}` : ''}
+${isContract ? `Số hợp đồng: ${receipt.document?.metadata.contractNumber || 'N/A'}` : ''}
+${isContract ? `Địa điểm: ${receipt.document?.metadata.location || 'N/A'}` : ''}
+${!isContract ? `Người gửi: ${info.hoTenNguoiGui || 'N/A'}` : ''}
+${!isContract ? `Người nhận: ${info.hoTenNguoiNhan || 'N/A'}` : ''}
+${!isContract ? `Số tiền: ${formatCurrency(info.soTien)}` : ''}
+Thời gian ký: ${new Date().toLocaleString('vi-VN')}
+
+File PDF đã được đính kèm trong email này.
+
+Xem ${docType} trực tuyến: ${viewUrl}
+
+Email tự động từ Hệ thống ${docType} điện tử
+  `.trim();
+
   const mailOptions = {
     from: `"Hệ thống ${docType} điện tử" <${process.env.EMAIL_USER}>`,
     to: recipientEmails.join(', '), // Send to all recipients
-    subject: `📝 ${docType} #${receipt.id} - ${info.hoTenNguoiGui || docTitle} đã ký xác nhận`,
+    subject: `${docType} ${receipt.id} đã được ký xác nhận`,
+    text: plainText, // Plain text version to avoid spam
     attachments,
     html: `
       <!DOCTYPE html>
-      <html>
+      <html lang="vi">
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <title>${docType} đã được ký xác nhận</title>
       </head>
-      <body style="font-family: 'Segoe UI', Tahoma, Arial, sans-serif; line-height: 1.7; color: #1a1a1a; max-width: 700px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
-        <div style="background: #ffffff; border: 1px solid #d4d4d4; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);">
-          
-          <!-- Header -->
-          <div style="padding: 24px; text-align: center; border-bottom: 2px solid #c9a227; background: linear-gradient(135deg, #fefefe 0%, #f8f6f0 100%);">
-            <h1 style="font-size: 22px; font-weight: bold; color: #1a1a1a; margin: 0 0 8px 0;">
-              ✅ ${docType.toUpperCase()} ĐÃ ĐƯỢC KÝ XÁC NHẬN
-            </h1>
-            <p style="font-size: 14px; color: #666; margin: 0;">
-              ${isContract ? 'Mã hợp đồng' : 'Mã biên lai'}: <strong style="color: #c9a227;">${receipt.id}</strong>
-            </p>
-            ${isContract ? `<p style="font-size: 13px; color: #666; margin: 4px 0 0 0;">${docTitle}</p>` : ''}
-          </div>
-          
-          <!-- Quick Info -->
-          <div style="padding: 20px 24px; background: #fafafa; border-bottom: 1px solid #eee;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-              ${isContract ? `
+      <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%); padding: 40px 20px;">
+          <tr>
+            <td align="center">
+              <!-- Main Card Container -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="max-width: 600px; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);">
+                
+                <!-- Header with Glass Effect -->
                 <tr>
-                  <td style="padding: 8px 0; color: #666;">Tiêu đề:</td>
-                  <td style="padding: 8px 0; color: #1a1a1a; font-weight: 600;">${docTitle}</td>
+                  <td style="padding: 32px 28px; text-align: center; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid rgba(0, 0, 0, 0.08);">
+                    <div style="display: inline-block; width: 56px; height: 56px; background: rgba(0, 0, 0, 0.9); border-radius: 12px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);">
+                      <span style="font-size: 28px;">✅</span>
+                    </div>
+                    <h1 style="margin: 0 0 8px 0; font-size: 24px; font-weight: 700; color: #1a1a1a; letter-spacing: -0.5px;">
+                      ${docType.toUpperCase()} ĐÃ ĐƯỢC KÝ XÁC NHẬN
+                    </h1>
+                    <p style="margin: 0 0 4px 0; font-size: 14px; color: #6b7280; font-weight: 500;">
+                      ${isContract ? 'Mã hợp đồng' : 'Mã biên lai'}: <strong style="color: #1a1a1a;">${receipt.id}</strong>
+                    </p>
+                    ${isContract ? `<p style="margin: 0; font-size: 13px; color: #9ca3af;">${docTitle}</p>` : ''}
+                  </td>
                 </tr>
+                
+                <!-- Info Card -->
                 <tr>
-                  <td style="padding: 8px 0; color: #666;">Số hợp đồng:</td>
-                  <td style="padding: 8px 0; color: #1a1a1a;">${receipt.document?.metadata.contractNumber || 'N/A'}</td>
+                  <td style="padding: 24px 28px;">
+                    <div style="background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 12px; padding: 20px;">
+                      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="font-size: 14px;">
+                        ${isContract ? `
+                          <tr>
+                            <td style="padding: 10px 0; color: #6b7280; width: 140px; vertical-align: top;">Tiêu đề:</td>
+                            <td style="padding: 10px 0; color: #1a1a1a; font-weight: 600; vertical-align: top;">${docTitle}</td>
+                          </tr>
+                          <tr>
+                            <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">Số hợp đồng:</td>
+                            <td style="padding: 10px 0; color: #1a1a1a; vertical-align: top;">${receipt.document?.metadata.contractNumber || 'N/A'}</td>
+                          </tr>
+                          <tr>
+                            <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">Địa điểm:</td>
+                            <td style="padding: 10px 0; color: #1a1a1a; vertical-align: top;">${receipt.document?.metadata.location || 'N/A'}</td>
+                          </tr>
+                        ` : `
+                          <tr>
+                            <td style="padding: 10px 0; color: #6b7280; width: 140px; vertical-align: top;">Người gửi tiền:</td>
+                            <td style="padding: 10px 0; color: #1a1a1a; font-weight: 600; vertical-align: top;">${info.hoTenNguoiGui || 'N/A'}</td>
+                          </tr>
+                          <tr>
+                            <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">Người nhận tiền:</td>
+                            <td style="padding: 10px 0; color: #1a1a1a; font-weight: 600; vertical-align: top;">${info.hoTenNguoiNhan || 'N/A'}</td>
+                          </tr>
+                          <tr>
+                            <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">Số tiền:</td>
+                            <td style="padding: 10px 0; color: #1a1a1a; font-weight: 700; font-size: 16px; vertical-align: top;">${formatCurrency(info.soTien)}</td>
+                          </tr>
+                        `}
+                        <tr>
+                          <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">Thời gian ký:</td>
+                          <td style="padding: 10px 0; color: #1a1a1a; vertical-align: top;">${new Date().toLocaleString('vi-VN')}</td>
+                        </tr>
+                      </table>
+                    </div>
+                  </td>
                 </tr>
+                
+                <!-- PDF Attachment Notice -->
                 <tr>
-                  <td style="padding: 8px 0; color: #666;">Địa điểm:</td>
-                  <td style="padding: 8px 0; color: #1a1a1a;">${receipt.document?.metadata.location || 'N/A'}</td>
+                  <td style="padding: 0 28px 24px 28px;">
+                    ${pdfBuffer ? `
+                      <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 12px; padding: 20px; text-align: center;">
+                        <p style="margin: 0 0 8px 0; font-size: 14px; color: #1e40af; font-weight: 600;">📎 File PDF đã được đính kèm</p>
+                        <p style="margin: 0; font-size: 13px; color: #6b7280;">${generatePDFFilename(isContract ? 'contract' : 'receipt', receipt.id, docTitle)}</p>
+                        <p style="margin: 8px 0 0 0; font-size: 12px; color: #9ca3af;">Vui lòng kiểm tra phần đính kèm của email để tải xuống file PDF</p>
+                      </div>
+                    ` : `
+                      <div style="text-align: center; padding: 20px;">
+                        <p style="margin: 0 0 12px 0; font-size: 13px; color: #6b7280;">📄 Hình ảnh biên lai đã ký:</p>
+                        <img src="cid:receipt_image" alt="Biên lai đã ký" style="max-width: 100%; height: auto; border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);" />
+                      </div>
+                    `}
+                  </td>
                 </tr>
-              ` : `
-                <tr>
-                  <td style="padding: 8px 0; color: #666;">Người gửi tiền:</td>
-                  <td style="padding: 8px 0; color: #1a1a1a; font-weight: 600;">${info.hoTenNguoiGui || 'N/A'}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; color: #666;">Người nhận tiền:</td>
-                  <td style="padding: 8px 0; color: #1a1a1a; font-weight: 600;">${info.hoTenNguoiNhan || 'N/A'}</td>
-                </tr>
-                <tr>
-                  <td style="padding: 8px 0; color: #666;">Số tiền:</td>
-                  <td style="padding: 8px 0; color: #b8860b; font-weight: bold; font-size: 16px;">${formatCurrency(info.soTien)}</td>
-                </tr>
-              `}
-              <tr>
-                <td style="padding: 8px 0; color: #666;">Thời gian ký:</td>
-                <td style="padding: 8px 0; color: #1a1a1a;">${new Date().toLocaleString('vi-VN')}</td>
-              </tr>
-            </table>
-          </div>
-          
-          <!-- Content Preview -->
-          <div style="padding: 24px; text-align: center;">
-            ${pdfBuffer ? `
-              <p style="font-size: 13px; color: #888; margin: 0 0 16px 0;">📄 File PDF đã được đính kèm</p>
-              <div style="padding: 20px; background: #f0f9ff; border: 2px dashed #3b82f6; border-radius: 8px;">
-                <p style="font-size: 16px; margin: 0 0 8px 0;">📎 <strong>${generatePDFFilename(isContract ? 'contract' : 'receipt', receipt.id, docTitle)}</strong></p>
-                <p style="font-size: 13px; color: #666; margin: 0;">Vui lòng tải xuống file đính kèm để xem chi tiết</p>
-              </div>
-            ` : `
-              <p style="font-size: 13px; color: #888; margin: 0 0 16px 0;">📄 Hình ảnh biên lai đã ký:</p>
-              <img src="cid:receipt_image" alt="Biên lai đã ký" style="max-width: 100%; height: auto; border: 1px solid #e0e0e0; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);" />
-            `}
-          </div>
 
-          <!-- View Link -->
-          <div style="padding: 20px 24px; text-align: center; border-top: 1px solid #eee;">
-            <a href="${viewUrl}" style="display: inline-block; background: #1a1a1a; color: white; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-size: 14px; font-weight: 500;">
-              Xem ${docType} trực tuyến →
-            </a>
-          </div>
-          
-          <!-- Footer -->
-          <div style="padding: 16px 24px; background: #fafafa; border-top: 1px solid #e0e0e0; text-align: center;">
-            <p style="color: #888; font-size: 12px; margin: 0;">
-              Email tự động từ <strong>Hệ thống ${docType} điện tử</strong>
-            </p>
-          </div>
-        </div>
+                <!-- View Button -->
+                <tr>
+                  <td style="padding: 0 28px 28px 28px; text-align: center;">
+                    <a href="${viewUrl}" style="display: inline-block; background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: #ffffff; padding: 14px 32px; text-decoration: none; border-radius: 10px; font-size: 14px; font-weight: 600; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2); transition: all 0.2s ease;">
+                      Xem ${docType} trực tuyến →
+                    </a>
+                  </td>
+                </tr>
+                
+                <!-- Footer -->
+                <tr>
+                  <td style="padding: 20px 28px; background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-top: 1px solid rgba(0, 0, 0, 0.08); text-align: center;">
+                    <p style="margin: 0; color: #9ca3af; font-size: 12px;">
+                      Email tự động từ <strong style="color: #6b7280;">Hệ thống ${docType} điện tử</strong>
+                    </p>
+                    <p style="margin: 8px 0 0 0; color: #d1d5db; font-size: 11px;">
+                      © ${new Date().getFullYear()} Hệ thống ${docType} điện tử. Tất cả quyền được bảo lưu.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
       </body>
       </html>
     `,

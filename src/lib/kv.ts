@@ -13,9 +13,10 @@ let redis: Redis | null = null;
 
 function getRedis(): Redis {
   if (!redis) {
-    const redisUrl = process.env.REDIS_URL;
+    // Ưu tiên REDIS_URL_NEW (Upstash mới), fallback về REDIS_URL cũ
+    const redisUrl = process.env.REDIS_URL_NEW || process.env.REDIS_URL;
     if (!redisUrl) {
-      throw new Error('REDIS_URL environment variable is not set');
+      throw new Error('REDIS_URL_NEW or REDIS_URL environment variable is not set');
     }
     redis = new Redis(redisUrl);
   }
