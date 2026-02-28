@@ -18,7 +18,22 @@ function getRedis(): Redis {
     if (!redisUrl) {
       throw new Error('REDIS_URL_NEW or REDIS_URL environment variable is not set');
     }
-    redis = new Redis(redisUrl);
+    
+    // Cấu hình cho Vercel serverless + Upstash
+    redis = new Redis(redisUrl, {
+      maxRetriesPerRequest: 3, // Giảm số lần retry (mặc định 20)
+      retryDelayOnFailover: 100,
+      retryDelayOnClusterDown: 100,
+      enableReadyCheck: false, // Bỏ qua ready check cho serverless
+      connectTimeout: 10000, // 10 giây timeout
+      // TLS đã được enable tự động với rediss://
+      lazyConnect: true, // Chỉ connect khi cần
+    });
+
+    // Xử lý lỗi để không crash serverless function
+    redis.on('error', (err) => {
+      console.error('[Redis] Connection error:', err.message);
+    });
   }
   return redis;
 }
