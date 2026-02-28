@@ -45,7 +45,7 @@ const PUBLIC_API_ROUTES = [
 
 // === MAINTENANCE MODE ===
 // Set to true to enable maintenance mode
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false; // Đã tắt - hệ thống hoạt động bình thường
 
 // Routes that bypass maintenance mode
 const MAINTENANCE_BYPASS_ROUTES = [
