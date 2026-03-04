@@ -200,29 +200,34 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
     fetchContract();
   }, [receiptId]);
-
   // Load PDF document and render pages
   const pdfDocRef = useRef<any>(null);
   const pdfBase64Ref = useRef<string | null>(null);
 
+
   // Step 1: Load PDF document when receipt is ready
+  const loadingRef = useRef(false);
+
   useEffect(() => {
     if (!receipt?.document?.metadata?.isPdfUpload) return;
 
     setIsPdfUpload(true);
     setPdfPlacements(receipt.document.metadata.signaturePlacements || []);
 
-    // If already loaded, skip
-    if (pdfDocRef.current) return;
+    // If already loaded or currently loading, skip
+    if (pdfDocRef.current || loadingRef.current) return;
+    loadingRef.current = true;
 
     let cancelled = false;
 
     const loadPdf = async () => {
       try {
         setPdfRendering(true);
+        console.log('[PDF] Starting PDF load...');
 
         // Get pdfBase64 from metadata (legacy) or API
         let pdfBase64: string | null = receipt.document?.metadata?.pdfBase64 as string || null;
+        console.log('[PDF] pdfBase64 from metadata:', pdfBase64 ? `${pdfBase64.length} chars` : 'null');
 
         if (!pdfBase64) {
           try {
@@ -230,15 +235,17 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
             const pdfData = await pdfRes.json();
             if (pdfData.success && pdfData.pdfBase64) {
               pdfBase64 = pdfData.pdfBase64;
+              console.log('[PDF] Got from API:', pdfBase64!.length, 'chars');
             }
           } catch (e) {
-            console.warn('Failed to fetch PDF from API');
+            console.warn('[PDF] Failed to fetch PDF from API');
           }
         }
 
         if (!pdfBase64 || cancelled) {
-          console.error('No PDF data available');
+          console.error('[PDF] No PDF data available or cancelled');
           setPdfRendering(false);
+          loadingRef.current = false;
           return;
         }
 
@@ -247,20 +254,27 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
         const pdfjsLib = await import('pdfjs-dist');
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
-        // Use fetch API for robust base64 → ArrayBuffer conversion (handles large strings)
+        // Use fetch API for robust base64 → ArrayBuffer conversion
         const dataUrl = pdfBase64.startsWith('data:') ? pdfBase64 : `data:application/pdf;base64,${pdfBase64}`;
         const response = await fetch(dataUrl);
         const arrayBuffer = await response.arrayBuffer();
+        console.log('[PDF] ArrayBuffer size:', arrayBuffer.byteLength);
 
         const doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        if (cancelled) return;
+        if (cancelled) {
+          console.log('[PDF] Cancelled after getDocument');
+          loadingRef.current = false;
+          return;
+        }
 
+        console.log('[PDF] Document loaded, pages:', doc.numPages);
         pdfDocRef.current = doc;
-        setPdfDoc(doc);
         setPdfTotalPages(doc.numPages);
+        // Don't call setPdfDoc — use ref only to avoid re-render cancellation
       } catch (error) {
-        console.error('Error loading PDF:', error);
+        console.error('[PDF] Error loading PDF:', error);
         setPdfRendering(false);
+        loadingRef.current = false;
       }
     };
 
@@ -269,51 +283,72 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [receipt?.id]);
 
-  // Step 2: Render pages when pdfDoc is loaded and canvases are mounted
+  // Step 2: Render pages when pdfTotalPages is set (doc is in ref)
   useEffect(() => {
-    if (!pdfDoc || pdfTotalPages <= 0 || pdfPagesRendered) return;
+    if (pdfTotalPages <= 0 || pdfPagesRendered) return;
+    const doc = pdfDocRef.current;
+    if (!doc) return;
 
     let cancelled = false;
+    console.log('[PDF] Render effect triggered, pages:', pdfTotalPages);
 
     const renderPages = async () => {
-      // Wait for canvases to mount (retry up to 30 times, 200ms apart)
+      // Wait for canvases to mount (retry up to 50 times, 100ms apart = 5 seconds)
       const tryRender = async (attempt = 0): Promise<void> => {
-        if (cancelled) return;
-
-        const canvasElements: HTMLCanvasElement[] = [];
-        for (let i = 1; i <= pdfDoc.numPages; i++) {
-          const el = pdfCanvasRefs.current.get(i);
-          if (el) canvasElements.push(el);
+        if (cancelled) {
+          console.log('[PDF] Render cancelled at attempt', attempt);
+          return;
         }
 
-        if (canvasElements.length < pdfDoc.numPages && attempt < 30) {
-          await new Promise(r => setTimeout(r, 200));
+        let canvasCount = 0;
+        for (let i = 1; i <= doc.numPages; i++) {
+          if (pdfCanvasRefs.current.get(i)) canvasCount++;
+        }
+
+        console.log('[PDF] Attempt', attempt, '- canvases found:', canvasCount, '/', doc.numPages);
+
+        if (canvasCount < doc.numPages && attempt < 50) {
+          await new Promise(r => setTimeout(r, 100));
           return tryRender(attempt + 1);
         }
 
-        // Render all pages
-        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+        if (canvasCount === 0) {
+          console.error('[PDF] No canvases found after all attempts');
+          return;
+        }
+
+        // Render all pages sequentially
+        for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
           if (cancelled) return;
           const canvas = pdfCanvasRefs.current.get(pageNum);
-          if (!canvas) continue;
+          if (!canvas) {
+            console.warn('[PDF] Canvas not found for page', pageNum);
+            continue;
+          }
 
-          const page = await pdfDoc.getPage(pageNum);
-          const viewport = page.getViewport({ scale: 1.3 });
-          const context = canvas.getContext('2d');
-          if (!context) continue;
+          try {
+            const page = await doc.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1.3 });
+            const context = canvas.getContext('2d');
+            if (!context) continue;
 
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
 
-          await page.render({
-            canvasContext: context,
-            viewport: viewport,
-          } as any).promise;
+            await page.render({
+              canvasContext: context,
+              viewport: viewport,
+            } as any).promise;
+            console.log('[PDF] Page', pageNum, 'rendered successfully');
+          } catch (err) {
+            console.error('[PDF] Error rendering page', pageNum, err);
+          }
         }
 
         if (!cancelled) {
           setPdfPagesRendered(true);
           setPdfRendering(false);
+          console.log('[PDF] All pages rendered!');
         }
       };
 
@@ -322,7 +357,7 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
     renderPages();
     return () => { cancelled = true; };
-  }, [pdfDoc, pdfTotalPages, pdfPagesRendered]);
+  }, [pdfTotalPages, pdfPagesRendered]);
 
   // Canvas ref callback — just stores the ref
   const setCanvasRef = useCallback((el: HTMLCanvasElement | null, pageNum: number) => {
