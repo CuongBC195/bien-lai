@@ -83,6 +83,12 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Skip login/register pages (must be accessible without auth)
+  const PUBLIC_PAGES = ['/admin/login', '/user/login', '/user/register', '/user/verify-email'];
+  if (PUBLIC_PAGES.some(route => pathname === route || pathname.startsWith(route + '/'))) {
+    return NextResponse.next();
+  }
+
   // Check if the route requires admin authentication
   const isAdminRoute = ADMIN_ROUTES.some(route => pathname.startsWith(route));
   const isUserRoute = USER_ROUTES.some(route => pathname.startsWith(route));
