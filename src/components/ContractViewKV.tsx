@@ -235,56 +235,54 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
     }
   }, [receipt, loadPdfDocument]);
 
-  // Render ALL PDF pages
-  const renderTaskRef = useRef<any>(null);
-  const renderAllPdfPages = useCallback(async () => {
-    if (!pdfDoc || pdfPagesRendered) return;
+  // Render a single PDF page on a specific canvas
+  const renderedPagesRef = useRef<Set<number>>(new Set());
+  const renderingPagesRef = useRef<Set<number>>(new Set());
 
-    // Cancel any previous render
-    if (renderTaskRef.current) {
-      try { renderTaskRef.current.cancel(); } catch { }
-      renderTaskRef.current = null;
-    }
+  const renderPageOnCanvas = useCallback(async (canvas: HTMLCanvasElement, pageNum: number) => {
+    if (!pdfDoc) return;
+    if (renderedPagesRef.current.has(pageNum)) return;
+    if (renderingPagesRef.current.has(pageNum)) return;
 
-    setPdfRendering(true);
+    renderingPagesRef.current.add(pageNum);
     try {
-      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-        const canvas = pdfCanvasRefs.current.get(pageNum);
-        if (!canvas) continue;
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1.3 });
+      const context = canvas.getContext('2d');
+      if (!context) return;
 
-        const page = await pdfDoc.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 1.3 });
-        const context = canvas.getContext('2d');
-        if (!context) continue;
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
 
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
+      await page.render({
+        canvasContext: context,
+        viewport: viewport,
+      }).promise;
 
-        const task = page.render({
-          canvasContext: context,
-          viewport: viewport,
-        });
-        renderTaskRef.current = task;
-        await task.promise;
+      renderedPagesRef.current.add(pageNum);
+
+      // Check if all pages rendered
+      if (renderedPagesRef.current.size >= pdfDoc.numPages) {
+        setPdfPagesRendered(true);
+        setPdfRendering(false);
       }
-      renderTaskRef.current = null;
-      setPdfPagesRendered(true);
     } catch (error: any) {
       if (error?.name !== 'RenderingCancelledException') {
-        console.error('Error rendering PDF pages:', error);
+        console.error(`Error rendering PDF page ${pageNum}:`, error);
       }
     } finally {
-      setPdfRendering(false);
+      renderingPagesRef.current.delete(pageNum);
     }
-  }, [pdfDoc, pdfPagesRendered]);
+  }, [pdfDoc]);
 
-  useEffect(() => {
-    if (pdfDoc && pdfTotalPages > 0 && !pdfPagesRendered) {
-      // Delay to allow canvas refs to be set
-      const timer = setTimeout(() => renderAllPdfPages(), 150);
-      return () => clearTimeout(timer);
+  // Canvas ref callback — triggers render when canvas mounts
+  const setCanvasRef = useCallback((el: HTMLCanvasElement | null, pageNum: number) => {
+    if (el && pdfDoc) {
+      pdfCanvasRefs.current.set(pageNum, el);
+      setPdfRendering(true);
+      renderPageOnCanvas(el, pageNum);
     }
-  }, [pdfDoc, pdfTotalPages, renderAllPdfPages, pdfPagesRendered]);
+  }, [pdfDoc, renderPageOnCanvas]);
 
   // Handle signature
   const handleOpenSignature = (signerId: string) => {
@@ -701,11 +699,7 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
                       </div>
 
                       <canvas
-                        ref={(el) => {
-                          if (el) {
-                            pdfCanvasRefs.current.set(pageIndex + 1, el);
-                          }
-                        }}
+                        ref={(el) => setCanvasRef(el, pageIndex + 1)}
                         className="block rounded-lg"
                       />
 
