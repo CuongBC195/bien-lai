@@ -247,14 +247,12 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
         const pdfjsLib = await import('pdfjs-dist');
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
-        const base64Data = pdfBase64.split(',')[1] || pdfBase64;
-        const binaryString = atob(base64Data);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
+        // Use fetch API for robust base64 → ArrayBuffer conversion (handles large strings)
+        const dataUrl = pdfBase64.startsWith('data:') ? pdfBase64 : `data:application/pdf;base64,${pdfBase64}`;
+        const response = await fetch(dataUrl);
+        const arrayBuffer = await response.arrayBuffer();
 
-        const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+        const doc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         if (cancelled) return;
 
         pdfDocRef.current = doc;
@@ -532,13 +530,10 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
         // Dynamically import pdf-lib
         const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
 
-        // Decode original PDF
-        const base64Data = pdfBase64.split(',')[1] || pdfBase64;
-        const binaryString = atob(base64Data);
-        const pdfBytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          pdfBytes[i] = binaryString.charCodeAt(i);
-        }
+        // Decode original PDF using fetch API (handles large strings)
+        const dataUrl = pdfBase64.startsWith('data:') ? pdfBase64 : `data:application/pdf;base64,${pdfBase64}`;
+        const pdfResponse = await fetch(dataUrl);
+        const pdfBytes = new Uint8Array(await pdfResponse.arrayBuffer());
 
         const pdfDoc = await PDFDocument.load(pdfBytes);
         const pages = pdfDoc.getPages();
