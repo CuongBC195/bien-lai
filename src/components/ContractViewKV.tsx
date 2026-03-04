@@ -275,14 +275,27 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
     }
   }, [pdfDoc]);
 
-  // Canvas ref callback — triggers render when canvas mounts
+  // Canvas ref callback — always stores ref, renders if pdfDoc ready
   const setCanvasRef = useCallback((el: HTMLCanvasElement | null, pageNum: number) => {
-    if (el && pdfDoc) {
+    if (el) {
       pdfCanvasRefs.current.set(pageNum, el);
-      setPdfRendering(true);
-      renderPageOnCanvas(el, pageNum);
+      // If pdfDoc is already loaded, render immediately
+      if (pdfDoc) {
+        setPdfRendering(true);
+        renderPageOnCanvas(el, pageNum);
+      }
     }
   }, [pdfDoc, renderPageOnCanvas]);
+
+  // Fallback: when pdfDoc loads AFTER canvases already mounted, render all
+  useEffect(() => {
+    if (pdfDoc && pdfCanvasRefs.current.size > 0 && !pdfPagesRendered) {
+      setPdfRendering(true);
+      pdfCanvasRefs.current.forEach((canvas, pageNum) => {
+        renderPageOnCanvas(canvas, pageNum);
+      });
+    }
+  }, [pdfDoc, pdfPagesRendered, renderPageOnCanvas]);
 
   // Handle signature
   const handleOpenSignature = (signerId: string) => {
