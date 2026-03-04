@@ -59,15 +59,15 @@ export async function POST(request: NextRequest) {
     const isContract = documentData?.type === 'contract' || !!documentData?.title;
     const docTitle = documentData?.title || 'Văn bản';
     const docId = receiptId || 'N/A';
-    
+
     const senderName = isContract ? 'Hợp đồng điện tử' : (receiptInfo?.donViNguoiNhan || 'Biên nhận điện tử');
-    const subjectName = isContract 
-      ? `${docTitle} - ${docId}` 
+    const subjectName = isContract
+      ? `${docTitle} - ${docId}`
       : (receiptInfo?.hoTenNguoiNhan || customerName || 'Biên nhận');
-    
+
     // Simplified email when no receiptInfo
     const hasReceiptInfo = receiptInfo && (receiptInfo.hoTenNguoiNhan || receiptInfo.soTien);
-    
+
     const receiptInfoHtml = hasReceiptInfo ? `
       <div style="background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 12px; padding: 20px;">
         <h3 style="margin: 0 0 16px 0; color: #1a1a1a; font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
@@ -116,9 +116,9 @@ ${isContract ? 'Hợp đồng điện tử' : 'Biên nhận điện tử'} - Yê
 
 Kính gửi ${customerName || 'Quý khách'},
 
-${isContract 
-  ? `Chúng tôi xin gửi đến Quý khách ${docTitle} (Mã: ${docId}) và kính mời Quý khách xem xét và ký xác nhận.`
-  : 'Chúng tôi xin gửi đến Quý khách thông tin biên nhận tiền và kính mời Quý khách ký xác nhận.'}
+${isContract
+        ? `Chúng tôi xin gửi đến Quý khách ${docTitle} (Mã: ${docId}) và kính mời Quý khách xem xét và ký xác nhận.`
+        : 'Chúng tôi xin gửi đến Quý khách thông tin biên nhận tiền và kính mời Quý khách ký xác nhận.'}
 
 ${hasReceiptInfo ? `
 Thông tin biên nhận:
@@ -142,7 +142,7 @@ ${process.env.ADMIN_EMAIL ? `Liên hệ: ${process.env.ADMIN_EMAIL}` : ''}
     const mailOptions = {
       from: `"${senderName}" <${process.env.EMAIL_USER}>`,
       to: customerEmail,
-      subject: isContract 
+      subject: isContract
         ? `Yêu cầu ký xác nhận hợp đồng - ${docId}`
         : `Yêu cầu ký xác nhận biên nhận - ${subjectName}`,
       text: plainText, // Plain text version to avoid spam
@@ -165,9 +165,6 @@ ${process.env.ADMIN_EMAIL ? `Liên hệ: ${process.env.ADMIN_EMAIL}` : ''}
                   <!-- Header with Glass Effect -->
                   <tr>
                     <td style="padding: 32px 28px; text-align: center; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid rgba(0, 0, 0, 0.08);">
-                      <div style="display: inline-block; width: 56px; height: 56px; background: rgba(0, 0, 0, 0.9); border-radius: 12px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);">
-                        <span style="font-size: 28px;">📝</span>
-                      </div>
                       <h1 style="margin: 0 0 8px 0; font-size: 24px; font-weight: 700; color: #1a1a1a; letter-spacing: -0.5px;">
                         ${isContract ? 'Hợp đồng điện tử' : 'Biên nhận điện tử'}
                       </h1>
@@ -185,9 +182,9 @@ ${process.env.ADMIN_EMAIL ? `Liên hệ: ${process.env.ADMIN_EMAIL}` : ''}
                       </p>
                       
                       <p style="margin: 0 0 24px 0; color: #6b7280; font-size: 15px; line-height: 1.7;">
-                        ${isContract 
-                          ? `Chúng tôi xin gửi đến Quý khách <strong style="color: #1a1a1a;">${docTitle}</strong> (Mã: ${docId}) và kính mời Quý khách xem xét và ký xác nhận.`
-                          : 'Chúng tôi xin gửi đến Quý khách thông tin biên nhận tiền và kính mời Quý khách ký xác nhận.'}
+                        ${isContract
+          ? `Chúng tôi xin gửi đến Quý khách <strong style="color: #1a1a1a;">${docTitle}</strong> (Mã: ${docId}) và kính mời Quý khách xem xét và ký xác nhận.`
+          : 'Chúng tôi xin gửi đến Quý khách thông tin biên nhận tiền và kính mời Quý khách ký xác nhận.'}
                       </p>
                       
                       ${receiptInfoHtml}
@@ -243,9 +240,9 @@ ${process.env.ADMIN_EMAIL ? `Liên hệ: ${process.env.ADMIN_EMAIL}` : ''}
   } catch (error) {
     console.error('Error sending invitation email:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Không thể gửi email' 
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Không thể gửi email'
       },
       { status: 500 }
     );

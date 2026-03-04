@@ -14,6 +14,8 @@ import {
   Search,
   Filter,
   Sparkles,
+  Upload,
+  PenLine,
 } from 'lucide-react';
 import { CONTRACT_TEMPLATES, TEMPLATE_CATEGORIES, type ContractTemplate } from '@/data/templates';
 
@@ -53,7 +55,7 @@ export default function UserCreatePage() {
     try {
       const res = await fetch('/api/user/check');
       const data = await res.json();
-      
+
       if (data.authenticated && data.role === 'user') {
         setIsAuthenticated(true);
       } else {
@@ -146,16 +148,41 @@ export default function UserCreatePage() {
               <button
                 key={category}
                 onClick={() => setSelectedCategory(category)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${
-                  selectedCategory === category
-                    ? 'bg-black text-white shadow-lg'
-                    : 'bg-white/80 text-gray-600 hover:bg-white border border-gray-200'
-                }`}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all flex-shrink-0 ${selectedCategory === category
+                  ? 'bg-black text-white shadow-lg'
+                  : 'bg-white/80 text-gray-600 hover:bg-white border border-gray-200'
+                  }`}
               >
                 {category}
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Upload PDF Card */}
+        <div className="mb-8">
+          <button
+            onClick={() => router.push('/user/pdf-sign')}
+            className="w-full glass-card rounded-2xl p-6 text-left transition-all hover:scale-[1.01] hover:shadow-xl group border-2 border-dashed border-blue-200 hover:border-blue-400 bg-gradient-to-r from-blue-50/50 to-indigo-50/50"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center bg-blue-100 text-blue-600 transition-transform group-hover:scale-110">
+                <Upload className="w-7 h-7" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-gray-900 text-lg mb-1 group-hover:text-blue-700 transition-colors flex items-center gap-2">
+                  Upload PDF & Đặt Chữ Ký
+                  <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium">Mới</span>
+                </h3>
+                <p className="text-sm text-gray-500">
+                  Tải lên file PDF có sẵn, chọn vị trí và ký chữ ký số trực tiếp trên tài liệu
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-blue-500 group-hover:text-blue-700 transition-colors">
+                <PenLine className="w-5 h-5" />
+              </div>
+            </div>
+          </button>
         </div>
 
         {/* Template Grid */}

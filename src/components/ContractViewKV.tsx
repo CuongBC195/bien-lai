@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import {
   FileDown,
   PenLine,
@@ -8,12 +8,15 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
 import SignatureModal, { SignatureResult } from './SignatureModal';
 import { ToastContainer, useToast } from './Toast';
-import type { Receipt, Signer, SignatureData
+import type {
+  Receipt, Signer, SignatureData
 } from '@/lib/kv';
 
 /**
@@ -39,18 +42,18 @@ function signatureDataToDataUrl(signatureData: SignatureData | undefined, width 
         ${escapedText}
       </text>
     </svg>`;
-    
+
     return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
   }
-  
+
   if (signatureData.type === 'draw' && signatureData.signaturePoints && signatureData.signaturePoints.length > 0) {
     // Drawn signature - convert points to SVG paths
     const points = signatureData.signaturePoints;
-    
+
     // Filter out empty strokes
     const validStrokes = points.filter(stroke => stroke && stroke.length > 0);
     if (validStrokes.length === 0) return null;
-    
+
     // Find bounding box
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const stroke of validStrokes) {
@@ -67,17 +70,17 @@ function signatureDataToDataUrl(signatureData: SignatureData | undefined, width 
 
     const originalWidth = maxX - minX;
     const originalHeight = maxY - minY;
-    
+
     if (originalWidth === 0 && originalHeight === 0) {
       // Single point
       const color = signatureData.color || '#000000';
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
         <rect width="100%" height="100%" fill="#ffffff"/>
-        <circle cx="${width/2}" cy="${height/2}" r="2" fill="${color}" />
+        <circle cx="${width / 2}" cy="${height / 2}" r="2" fill="${color}" />
       </svg>`;
       return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
     }
-    
+
     const padding = 10;
     const scaleX = (width - padding * 2) / (originalWidth || 1);
     const scaleY = (height - padding * 2) / (originalHeight || 1);
@@ -110,7 +113,7 @@ function signatureDataToDataUrl(signatureData: SignatureData | undefined, width 
       <rect width="100%" height="100%" fill="#ffffff"/>
       ${paths}
     </svg>`;
-    
+
     return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
   }
 
@@ -141,6 +144,15 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
   const [exporting, setExporting] = useState(false);
   const [completed, setCompleted] = useState(false);
 
+  // PDF upload rendering state
+  const [isPdfUpload, setIsPdfUpload] = useState(false);
+  const [pdfDoc, setPdfDoc] = useState<any>(null);
+  const [pdfTotalPages, setPdfTotalPages] = useState(0);
+  const [pdfRendering, setPdfRendering] = useState(false);
+  const pdfCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const [pdfPlacements, setPdfPlacements] = useState<any[]>([]);
+  const [pdfPagesRendered, setPdfPagesRendered] = useState(false);
+
   // Fetch contract
   useEffect(() => {
     const fetchContract = async () => {
@@ -151,14 +163,14 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
         if (data.success && data.receipt) {
           const r = data.receipt as Receipt;
-          
+
           if (!r.document) {
             setError('Đây không phải hợp đồng mới. Vui lòng dùng trang xem biên lai cũ.');
             return;
           }
 
           setReceipt(r);
-          
+
           // Check if already fully signed
           if (r.status === 'signed') {
             setCompleted(true);
@@ -188,6 +200,91 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
     fetchContract();
   }, [receiptId]);
+
+  // Load PDF if it's a PDF upload document
+  const loadPdfDocument = useCallback(async (pdfBase64: string) => {
+    try {
+      setPdfRendering(true);
+      const pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+
+      // Convert base64 data URL to ArrayBuffer
+      const base64Data = pdfBase64.split(',')[1] || pdfBase64;
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+      setPdfDoc(doc);
+      setPdfTotalPages(doc.numPages);
+    } catch (error) {
+      console.error('Error loading PDF:', error);
+    } finally {
+      setPdfRendering(false);
+    }
+  }, []);
+
+  // Effect to detect and load PDF
+  useEffect(() => {
+    if (receipt?.document?.metadata?.isPdfUpload && receipt.document.metadata.pdfBase64) {
+      setIsPdfUpload(true);
+      setPdfPlacements(receipt.document.metadata.signaturePlacements || []);
+      loadPdfDocument(receipt.document.metadata.pdfBase64);
+    }
+  }, [receipt, loadPdfDocument]);
+
+  // Render ALL PDF pages
+  const renderTaskRef = useRef<any>(null);
+  const renderAllPdfPages = useCallback(async () => {
+    if (!pdfDoc || pdfPagesRendered) return;
+
+    // Cancel any previous render
+    if (renderTaskRef.current) {
+      try { renderTaskRef.current.cancel(); } catch { }
+      renderTaskRef.current = null;
+    }
+
+    setPdfRendering(true);
+    try {
+      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+        const canvas = pdfCanvasRefs.current.get(pageNum);
+        if (!canvas) continue;
+
+        const page = await pdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1.3 });
+        const context = canvas.getContext('2d');
+        if (!context) continue;
+
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        const task = page.render({
+          canvasContext: context,
+          viewport: viewport,
+        });
+        renderTaskRef.current = task;
+        await task.promise;
+      }
+      renderTaskRef.current = null;
+      setPdfPagesRendered(true);
+    } catch (error: any) {
+      if (error?.name !== 'RenderingCancelledException') {
+        console.error('Error rendering PDF pages:', error);
+      }
+    } finally {
+      setPdfRendering(false);
+    }
+  }, [pdfDoc, pdfPagesRendered]);
+
+  useEffect(() => {
+    if (pdfDoc && pdfTotalPages > 0 && !pdfPagesRendered) {
+      // Delay to allow canvas refs to be set
+      const timer = setTimeout(() => renderAllPdfPages(), 150);
+      return () => clearTimeout(timer);
+    }
+  }, [pdfDoc, pdfTotalPages, renderAllPdfPages, pdfPagesRendered]);
 
   // Handle signature
   const handleOpenSignature = (signerId: string) => {
@@ -261,7 +358,7 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
     try {
       // Find the first unsigned signer who has signature data
       const signerToSign = receipt.document.signers.find(s => !s.signed && signatureDataMap[s.id]);
-      
+
       if (!signerToSign) {
         showToast('Không tìm thấy chữ ký để gửi', 'error');
         return;
@@ -317,7 +414,7 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
       if (result.success) {
         showToast('Ký thành công!', 'success');
         setCompleted(true);
-        
+
         // Reload contract
         const refreshRes = await fetch(`/api/receipts/get?id=${receiptId}`);
         const refreshData = await refreshRes.json();
@@ -358,11 +455,140 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
   // Export PDF
   const handleExportPDF = async () => {
-    if (!contractRef.current || !receipt?.document) return;
+    if (!receipt?.document) return;
 
     setExporting(true);
 
     try {
+      // For PDF uploads: embed signatures into PDF using pdf-lib, then download
+      if (isPdfUpload && receipt.document.metadata?.pdfBase64) {
+        const pdfBase64 = receipt.document.metadata.pdfBase64 as string;
+        const placements = (receipt.document.metadata.signaturePlacements || []) as any[];
+
+        // Dynamically import pdf-lib
+        const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
+
+        // Decode original PDF
+        const base64Data = pdfBase64.split(',')[1] || pdfBase64;
+        const binaryString = atob(base64Data);
+        const pdfBytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          pdfBytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const pdfDoc = await PDFDocument.load(pdfBytes);
+        const pages = pdfDoc.getPages();
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+        const contract = receipt.document;
+
+        // Embed signatures at placements
+        for (const placement of placements) {
+          const signer = contract.signers[placement.signerIndex];
+          if (!signer || !signer.signed || !signer.signatureData) continue;
+          if (placement.page >= pages.length) continue;
+
+          const page = pages[placement.page];
+          const { width: pageWidth, height: pageHeight } = page.getSize();
+
+          const x = (placement.x / 100) * pageWidth;
+          const boxWidth = (placement.width / 100) * pageWidth;
+          const boxHeight = (placement.height / 100) * pageHeight;
+          const y = pageHeight - (placement.y / 100) * pageHeight - boxHeight;
+
+          if (signer.signatureData.type === 'type' && signer.signatureData.typedText) {
+            const text = signer.signatureData.typedText;
+            const fontSize = Math.min(boxHeight * 0.6, 18);
+            const textWidth = font.widthOfTextAtSize(text, fontSize);
+            const textX = x + (boxWidth - textWidth) / 2;
+            const textY = y + (boxHeight - fontSize) / 2;
+
+            const hexColor = (signer.signatureData.color || '#000000').replace('#', '');
+            const r = parseInt(hexColor.substring(0, 2), 16) / 255;
+            const g = parseInt(hexColor.substring(2, 4), 16) / 255;
+            const b = parseInt(hexColor.substring(4, 6), 16) / 255;
+
+            page.drawText(text, {
+              x: textX,
+              y: textY,
+              size: fontSize,
+              font,
+              color: rgb(r, g, b),
+            });
+          } else if (signer.signatureData.type === 'draw' && signer.signatureData.signaturePoints) {
+            const points = signer.signatureData.signaturePoints;
+            const validStrokes = points.filter((s: any) => s && s.length > 0);
+            if (validStrokes.length === 0) continue;
+
+            let sMinX = Infinity, sMinY = Infinity, sMaxX = -Infinity, sMaxY = -Infinity;
+            for (const stroke of validStrokes) {
+              for (const p of stroke) {
+                if (!p || typeof p.x !== 'number') continue;
+                sMinX = Math.min(sMinX, p.x);
+                sMinY = Math.min(sMinY, p.y);
+                sMaxX = Math.max(sMaxX, p.x);
+                sMaxY = Math.max(sMaxY, p.y);
+              }
+            }
+            if (!isFinite(sMinX)) continue;
+
+            const sigWidth = sMaxX - sMinX || 1;
+            const sigHeight = sMaxY - sMinY || 1;
+            const pad = 4;
+            const scaleX = (boxWidth - pad * 2) / sigWidth;
+            const scaleY = (boxHeight - pad * 2) / sigHeight;
+            const scale = Math.min(scaleX, scaleY);
+            const scaledW = sigWidth * scale;
+            const scaledH = sigHeight * scale;
+            const offsetX = x + (boxWidth - scaledW) / 2;
+            const offsetY = y + (boxHeight - scaledH) / 2;
+
+            const hexColor = (signer.signatureData.color || '#000000').replace('#', '');
+            const r = parseInt(hexColor.substring(0, 2), 16) / 255;
+            const g = parseInt(hexColor.substring(2, 4), 16) / 255;
+            const b = parseInt(hexColor.substring(4, 6), 16) / 255;
+
+            for (const stroke of validStrokes) {
+              for (let j = 1; j < stroke.length; j++) {
+                const p1 = stroke[j - 1];
+                const p2 = stroke[j];
+                if (!p1 || !p2 || !isFinite(p1.x) || !isFinite(p2.x)) continue;
+
+                const x1 = (p1.x - sMinX) * scale + offsetX;
+                const y1 = offsetY + scaledH - (p1.y - sMinY) * scale;
+                const x2 = (p2.x - sMinX) * scale + offsetX;
+                const y2 = offsetY + scaledH - (p2.y - sMinY) * scale;
+
+                page.drawLine({
+                  start: { x: x1, y: y1 },
+                  end: { x: x2, y: y2 },
+                  thickness: 1.5,
+                  color: rgb(r, g, b),
+                });
+              }
+            }
+          }
+        }
+
+        const modifiedPdfBytes = await pdfDoc.save();
+        const blob = new Blob([new Uint8Array(modifiedPdfBytes)], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${receipt.document.title || 'Hop_Dong'}_${receiptId}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        showToast('Đã tải xuống PDF có chữ ký', 'success');
+        setExporting(false);
+        return;
+      }
+
+      // For regular contracts: capture HTML as image
+      if (!contractRef.current) return;
+
       const dataUrl = await toPng(contractRef.current, {
         quality: 1.0,
         backgroundColor: '#ffffff',
@@ -453,81 +679,168 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
         {/* Contract Content */}
         <div ref={contractRef} className="glass-card rounded-2xl p-8 mb-6" style={{ fontFamily: 'var(--font-tinos), serif' }}>
-          {/* Header */}
-          <div className="text-center mb-8">
-            <p className="font-bold">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</p>
-            <p className="font-bold">Độc lập - Tự do - Hạnh phúc</p>
-            <p className="mt-4 text-gray-400">---------------oOo---------------</p>
-          </div>
+          {isPdfUpload ? (
+            /* ===== PDF UPLOAD VIEW: Show all PDF pages with signature overlays ===== */
+            <div>
 
-          {/* Title */}
-          <h1 className="text-2xl font-bold text-center mb-2">{contract.title}</h1>
-          {contract.metadata.contractNumber && (
-            <p className="text-center text-sm italic mb-6">Số: {contract.metadata.contractNumber}</p>
-          )}
+              {pdfRendering && !pdfPagesRendered && (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                  <span className="ml-3 text-gray-500">Đang tải PDF...</span>
+                </div>
+              )}
 
-          {/* Date & Location */}
-          <p className="mb-8">
-            {contract.metadata.createdDate}, tại {contract.metadata.location}
-          </p>
+              {/* All PDF pages */}
+              <div className="space-y-6">
+                {Array.from({ length: pdfTotalPages }, (_, i) => i).map((pageIndex) => (
+                  <div key={pageIndex} className="flex justify-center">
+                    <div className="relative inline-block shadow-lg">
+                      {/* Page label */}
+                      <div className="absolute -top-6 left-0 text-xs text-gray-400">
+                        Trang {pageIndex + 1} / {pdfTotalPages}
+                      </div>
 
-          {/* Content */}
-          <div
-            className="mb-8 leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: contract.content }}
-          />
+                      <canvas
+                        ref={(el) => {
+                          if (el) {
+                            pdfCanvasRefs.current.set(pageIndex + 1, el);
+                          }
+                        }}
+                        className="block rounded-lg"
+                      />
 
-          {/* Signatures */}
-          <div className="mt-12">
-            <p className="text-center mb-8">
-              {contract.metadata.location}, {contract.metadata.createdDate}
-            </p>
+                      {/* Signature placement overlays for this page */}
+                      {pdfPlacements
+                        .filter((p: any) => p.page === pageIndex)
+                        .map((placement: any) => {
+                          const signer = contract.signers[placement.signerIndex];
+                          if (!signer) return null;
 
-            <div className={`grid gap-8 ${contract.signers.length > 2 ? 'grid-cols-2' : `grid-cols-${contract.signers.length}`}`}>
-              {contract.signers.map((signer) => {
-                // Check if this signer has signature (either from server or local)
-                const hasLocalSignature = !!localSignatures[signer.id];
-                const hasServerSignature = signer.signed && signer.signatureData;
-                const hasSignature = hasLocalSignature || hasServerSignature;
-                
-                // Get signature preview - prioritize local, then render from server data
-                const signaturePreview = localSignatures[signer.id] || signatureDataToDataUrl(signer.signatureData);
+                          const hasLocalSignature = !!localSignatures[signer.id];
+                          const hasServerSignature = signer.signed && signer.signatureData;
+                          const hasSignature = hasLocalSignature || hasServerSignature;
+                          const signaturePreview = localSignatures[signer.id] || signatureDataToDataUrl(signer.signatureData);
 
-                return (
-                  <div key={signer.id} className="text-center">
-                    <p className="font-bold mb-2">{signer.role}</p>
-                    <p className="text-sm italic text-gray-500 mb-4">(Ký và ghi rõ họ tên)</p>
-
-                    <div className="min-h-[100px] flex items-center justify-center mb-4">
-                      {hasSignature && signaturePreview ? (
-                        <img
-                          src={signaturePreview}
-                          alt={`Chữ ký ${signer.role}`}
-                          className="h-20 w-auto object-contain"
-                        />
-                      ) : !completed && !signer.signed ? (
-                        <button
-                          onClick={() => handleOpenSignature(signer.id)}
-                          className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-blue-400 rounded-xl text-blue-600 hover:border-blue-600 hover:bg-blue-50 transition-colors"
-                        >
-                          <PenLine className="w-4 h-4" />
-                          Ký xác nhận
-                        </button>
-                      ) : (
-                        <span className="text-gray-400 italic">
-                          {signer.signed ? '✓ Đã ký' : 'Chưa ký'}
-                        </span>
-                      )}
+                          return (
+                            <div
+                              key={placement.id}
+                              className="absolute"
+                              style={{
+                                left: `${placement.x}%`,
+                                top: `${placement.y}%`,
+                                width: `${placement.width}%`,
+                                height: `${placement.height}%`,
+                                border: hasSignature ? 'none' : '2px dashed #3b82f6',
+                                backgroundColor: hasSignature ? 'transparent' : 'rgba(59, 130, 246, 0.05)',
+                                borderRadius: '4px',
+                              }}
+                            >
+                              <div className="w-full h-full flex flex-col items-center justify-center">
+                                {hasSignature && signaturePreview ? (
+                                  <img
+                                    src={signaturePreview}
+                                    alt={`Chữ ký ${signer.role}`}
+                                    className="max-w-full max-h-full object-contain"
+                                  />
+                                ) : !completed && !signer.signed ? (
+                                  <button
+                                    onClick={() => handleOpenSignature(signer.id)}
+                                    className="flex items-center gap-1 px-2 py-1 text-[10px] border border-dashed border-blue-400 rounded text-blue-600 hover:border-blue-600 hover:bg-blue-50 transition-colors"
+                                  >
+                                    <PenLine className="w-3 h-3" />
+                                    Ký ({signer.role})
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-gray-400 italic">
+                                    {signer.signed ? '✓' : signer.role}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
                     </div>
-
-                    <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8">
-                      {signer.name || '...........................'}
-                    </p>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            /* ===== REGULAR CONTRACT VIEW ===== */
+            <>
+              {/* Header */}
+              <div className="text-center mb-8">
+                <p className="font-bold">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</p>
+                <p className="font-bold">Độc lập - Tự do - Hạnh phúc</p>
+                <p className="mt-4 text-gray-400">---------------oOo---------------</p>
+              </div>
+
+              {/* Title */}
+              <h1 className="text-2xl font-bold text-center mb-2">{contract.title}</h1>
+              {contract.metadata.contractNumber && (
+                <p className="text-center text-sm italic mb-6">Số: {contract.metadata.contractNumber}</p>
+              )}
+
+              {/* Date & Location */}
+              <p className="mb-8">
+                {contract.metadata.createdDate}, tại {contract.metadata.location}
+              </p>
+
+              {/* Content */}
+              <div
+                className="mb-8 leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: contract.content }}
+              />
+
+              {/* Signatures */}
+              <div className="mt-12">
+                <p className="text-center mb-8">
+                  {contract.metadata.location}, {contract.metadata.createdDate}
+                </p>
+
+                <div className={`grid gap-8 ${contract.signers.length > 2 ? 'grid-cols-2' : `grid-cols-${contract.signers.length}`}`}>
+                  {contract.signers.map((signer) => {
+                    const hasLocalSignature = !!localSignatures[signer.id];
+                    const hasServerSignature = signer.signed && signer.signatureData;
+                    const hasSignature = hasLocalSignature || hasServerSignature;
+                    const signaturePreview = localSignatures[signer.id] || signatureDataToDataUrl(signer.signatureData);
+
+                    return (
+                      <div key={signer.id} className="text-center">
+                        <p className="font-bold mb-2">{signer.role}</p>
+                        <p className="text-sm italic text-gray-500 mb-4">(Ký và ghi rõ họ tên)</p>
+
+                        <div className="min-h-[100px] flex items-center justify-center mb-4">
+                          {hasSignature && signaturePreview ? (
+                            <img
+                              src={signaturePreview}
+                              alt={`Chữ ký ${signer.role}`}
+                              className="h-20 w-auto object-contain"
+                            />
+                          ) : !completed && !signer.signed ? (
+                            <button
+                              onClick={() => handleOpenSignature(signer.id)}
+                              className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-blue-400 rounded-xl text-blue-600 hover:border-blue-600 hover:bg-blue-50 transition-colors"
+                            >
+                              <PenLine className="w-4 h-4" />
+                              Ký xác nhận
+                            </button>
+                          ) : (
+                            <span className="text-gray-400 italic">
+                              {signer.signed ? '✓ Đã ký' : 'Chưa ký'}
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="border-t border-dotted border-gray-400 pt-2 inline-block px-8">
+                          {signer.name || '...........................'}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Actions */}

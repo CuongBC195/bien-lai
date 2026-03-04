@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getReceipt, updateReceipt, signReceipt, Receipt, DynamicField, SignatureData, getRedisClient } from '@/lib/kv';
 import nodemailer from 'nodemailer';
 import { generateContractPDF, generatePDFFilename } from '@/lib/pdf-generator';
+import { embedSignaturesInPdf } from '@/lib/pdf-embed';
 
 // 🔒 SECURITY: Rate limiting configuration for signing
 const MAX_SIGN_ATTEMPTS = 3;
@@ -33,7 +34,7 @@ async function checkSignRateLimit(identifier: string): Promise<{
     // Get oldest entry to calculate reset time
     const oldest = await redis.zrange(key, 0, 0, 'WITHSCORES');
     const resetTime = oldest[1] ? parseInt(oldest[1]) + (SIGN_RATE_WINDOW * 1000) : now + (SIGN_RATE_WINDOW * 1000);
-    
+
     return {
       success: false,
       limit: MAX_SIGN_ATTEMPTS,
@@ -86,10 +87,10 @@ function extractReceiptInfo(receipt: Receipt): {
       const field = receipt.data?.fields.find((f: DynamicField) => f.id === id);
       return field?.value || '';
     };
-    
+
     const soTienField = receipt.data.fields.find((f: DynamicField) => f.type === 'money');
     const soTien = soTienField ? parseInt(soTienField.value.replace(/\D/g, '')) || 0 : 0;
-    
+
     return {
       hoTenNguoiNhan: getFieldValue('hoTenNguoiNhan'),
       hoTenNguoiGui: getFieldValue('hoTenNguoiGui'),
@@ -103,7 +104,7 @@ function extractReceiptInfo(receipt: Receipt): {
   } else if (receipt.info) {
     return receipt.info;
   }
-  
+
   return {
     hoTenNguoiNhan: '',
     hoTenNguoiGui: '',
@@ -118,8 +119,8 @@ function extractReceiptInfo(receipt: Receipt): {
 
 // Send Email notification - with PDF for contracts, image for legacy receipts
 async function sendEmailNotification(
-  receipt: Receipt, 
-  pdfBuffer?: Buffer, 
+  receipt: Receipt,
+  pdfBuffer?: Buffer,
   receiptImageBase64?: string,
   customerEmail?: string
 ): Promise<void> {
@@ -133,14 +134,14 @@ async function sendEmailNotification(
 
   const isContract = !!receipt.document;
   const info = extractReceiptInfo(receipt);
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-                  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
-                  'http://localhost:3000';
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ||
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` :
+    'http://localhost:3000';
   const viewUrl = `${baseUrl}/?id=${receipt.id}`;
-  
+
   // Prepare attachments
   const attachments: any[] = [];
-  
+
   if (pdfBuffer) {
     // PDF attachment for contracts
     const filename = generatePDFFilename(
@@ -168,7 +169,7 @@ async function sendEmailNotification(
 
   // Collect all recipient emails
   const recipientEmails: string[] = [];
-  
+
   // 1. Add document creator email (if exists)
   if (receipt.userId) {
     const { getUserById } = await import('@/lib/kv');
@@ -177,12 +178,12 @@ async function sendEmailNotification(
       recipientEmails.push(user.email);
     }
   }
-  
+
   // 2. Add admin email (fallback if no creator)
   if (process.env.ADMIN_EMAIL && !recipientEmails.includes(process.env.ADMIN_EMAIL)) {
     recipientEmails.push(process.env.ADMIN_EMAIL);
   }
-  
+
   // 3. Add customer email (if provided and different from creator)
   if (customerEmail && !recipientEmails.includes(customerEmail)) {
     recipientEmails.push(customerEmail);
@@ -239,9 +240,6 @@ Email tự động từ Hệ thống ${docType} điện tử
                 <!-- Header with Glass Effect -->
                 <tr>
                   <td style="padding: 32px 28px; text-align: center; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid rgba(0, 0, 0, 0.08);">
-                    <div style="display: inline-block; width: 56px; height: 56px; background: rgba(0, 0, 0, 0.9); border-radius: 12px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);">
-                      <span style="font-size: 28px;">✅</span>
-                    </div>
                     <h1 style="margin: 0 0 8px 0; font-size: 24px; font-weight: 700; color: #1a1a1a; letter-spacing: -0.5px;">
                       ${docType.toUpperCase()} ĐÃ ĐƯỢC KÝ XÁC NHẬN
                     </h1>
@@ -257,20 +255,40 @@ Email tự động từ Hệ thống ${docType} điện tử
                   <td style="padding: 24px 28px;">
                     <div style="background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 12px; padding: 20px;">
                       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="font-size: 14px;">
-                        ${isContract ? `
-                          <tr>
-                            <td style="padding: 10px 0; color: #6b7280; width: 140px; vertical-align: top;">Tiêu đề:</td>
-                            <td style="padding: 10px 0; color: #1a1a1a; font-weight: 600; vertical-align: top;">${docTitle}</td>
-                          </tr>
-                          <tr>
-                            <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">Số hợp đồng:</td>
-                            <td style="padding: 10px 0; color: #1a1a1a; vertical-align: top;">${receipt.document?.metadata.contractNumber || 'N/A'}</td>
-                          </tr>
-                          <tr>
-                            <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">Địa điểm:</td>
-                            <td style="padding: 10px 0; color: #1a1a1a; vertical-align: top;">${receipt.document?.metadata.location || 'N/A'}</td>
-                          </tr>
-                        ` : `
+                        ${isContract ? (() => {
+        const isPdfUpload = !!receipt.document?.metadata?.isPdfUpload;
+        if (isPdfUpload) {
+          // PDF Upload: show signer info
+          const signerRows = receipt.document?.signers.map(s =>
+            `<tr>
+                                <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">${s.role}:</td>
+                                <td style="padding: 10px 0; color: #1a1a1a; font-weight: 600; vertical-align: top;">${s.name || '(Chưa nhập tên)'} ${s.signed ? '✅ Đã ký' : '⏳ Chưa ký'}</td>
+                              </tr>`
+          ).join('') || '';
+          return `
+                              <tr>
+                                <td style="padding: 10px 0; color: #6b7280; width: 140px; vertical-align: top;">Tiêu đề:</td>
+                                <td style="padding: 10px 0; color: #1a1a1a; font-weight: 600; vertical-align: top;">${docTitle}</td>
+                              </tr>
+                              ${signerRows}
+                            `;
+        } else {
+          return `
+                              <tr>
+                                <td style="padding: 10px 0; color: #6b7280; width: 140px; vertical-align: top;">Tiêu đề:</td>
+                                <td style="padding: 10px 0; color: #1a1a1a; font-weight: 600; vertical-align: top;">${docTitle}</td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">Số hợp đồng:</td>
+                                <td style="padding: 10px 0; color: #1a1a1a; vertical-align: top;">${receipt.document?.metadata.contractNumber || 'N/A'}</td>
+                              </tr>
+                              <tr>
+                                <td style="padding: 10px 0; color: #6b7280; vertical-align: top;">Địa điểm:</td>
+                                <td style="padding: 10px 0; color: #1a1a1a; vertical-align: top;">${receipt.document?.metadata.location || 'N/A'}</td>
+                              </tr>
+                            `;
+        }
+      })() : `
                           <tr>
                             <td style="padding: 10px 0; color: #6b7280; width: 140px; vertical-align: top;">Người gửi tiền:</td>
                             <td style="padding: 10px 0; color: #1a1a1a; font-weight: 600; vertical-align: top;">${info.hoTenNguoiGui || 'N/A'}</td>
@@ -354,16 +372,16 @@ async function sendTelegramNotification(receipt: Receipt, pdfBuffer?: Buffer, re
 
   const isContract = !!receipt.document;
   const info = extractReceiptInfo(receipt);
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-                  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 
-                  'http://localhost:3000';
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ||
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` :
+    'http://localhost:3000';
   const viewUrl = `${baseUrl}/?id=${receipt.id}`;
 
   const docType = isContract ? 'HỢP ĐỒNG' : 'BIÊN LAI';
   const docTitle = receipt.document?.title || receipt.data?.title || 'Văn bản';
-  
+
   // Create caption
-  const caption = isContract 
+  const caption = isContract
     ? `📝 *${docType} #${receipt.id}*
 ━━━━━━━━━━━━━━
 📋 *${docTitle}*
@@ -389,7 +407,7 @@ ${receipt.document?.metadata.contractNumber ? `📄 Số: ${receipt.document.met
   formData.append('parse_mode', 'Markdown');
 
   let endpoint = '';
-  
+
   if (pdfBuffer) {
     // Send PDF document
     const filename = generatePDFFilename(
@@ -427,10 +445,10 @@ ${receipt.document?.metadata.contractNumber ? `📄 Số: ${receipt.document.met
 export async function POST(request: NextRequest) {
   try {
     const body: SignReceiptRequest = await request.json();
-    const { 
-      id, 
-      receiptImage, 
-      signatureNguoiNhan, 
+    const {
+      id,
+      receiptImage,
+      signatureNguoiNhan,
       signatureNguoiGui,
       signatureDataNguoiGui,
       signatureDataNguoiNhan,
@@ -447,11 +465,11 @@ export async function POST(request: NextRequest) {
     // 🔒 SECURITY: Validate signature data (prevent empty submissions)
     const hasContractSignature = signatureDataNguoiGui || signatureDataNguoiNhan;
     const hasLegacySignature = receiptImage;
-    
+
     if (!hasContractSignature && !hasLegacySignature) {
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: 'Signature data is required. Please draw or type your signature.',
           code: 'EMPTY_SIGNATURE'
         },
@@ -462,11 +480,11 @@ export async function POST(request: NextRequest) {
     // 🔒 CRITICAL: Deep validation for contract signatures
     if (hasContractSignature) {
       const sigData = signatureDataNguoiGui || signatureDataNguoiNhan;
-      
+
       if (!sigData) {
         return NextResponse.json(
-          { 
-            success: false, 
+          {
+            success: false,
             error: 'Signature data is missing.',
             code: 'EMPTY_SIGNATURE'
           },
@@ -479,8 +497,8 @@ export async function POST(request: NextRequest) {
         // 1. Existence Check
         if (!sigData.signaturePoints) {
           return NextResponse.json(
-            { 
-              success: false, 
+            {
+              success: false,
               error: 'Signature points are missing. Please draw your signature.',
               code: 'EMPTY_SIGNATURE'
             },
@@ -491,8 +509,8 @@ export async function POST(request: NextRequest) {
         // 2. Type Check
         if (!Array.isArray(sigData.signaturePoints)) {
           return NextResponse.json(
-            { 
-              success: false, 
+            {
+              success: false,
               error: 'Invalid signature format. Please try again.',
               code: 'INVALID_SIGNATURE_FORMAT'
             },
@@ -503,11 +521,11 @@ export async function POST(request: NextRequest) {
         // 3. Length Check (CRITICAL!)
         // Filter valid strokes (non-empty)
         const validStrokes = sigData.signaturePoints.filter(stroke => Array.isArray(stroke) && stroke.length > 0);
-        
+
         if (validStrokes.length === 0) {
           return NextResponse.json(
-            { 
-              success: false, 
+            {
+              success: false,
               error: 'Chữ ký trống. Vui lòng vẽ chữ ký của bạn.',
               code: 'EMPTY_SIGNATURE'
             },
@@ -517,15 +535,15 @@ export async function POST(request: NextRequest) {
 
         // Count total points across all strokes
         const totalPoints = validStrokes.reduce((sum, stroke) => sum + stroke.length, 0);
-        
+
         // Require at least 10 points OR 2 strokes for valid signature
         const MIN_POINTS = 10;
         const MIN_STROKES = 2;
-        
+
         if (totalPoints < MIN_POINTS && validStrokes.length < MIN_STROKES) {
           return NextResponse.json(
-            { 
-              success: false, 
+            {
+              success: false,
               error: 'Chữ ký quá ngắn hoặc không hợp lệ. Vui lòng ký rõ ràng hơn.',
               code: 'SIGNATURE_TOO_SHORT',
               details: {
@@ -544,8 +562,8 @@ export async function POST(request: NextRequest) {
           for (const point of stroke) {
             if (!point || typeof point !== 'object') {
               return NextResponse.json(
-                { 
-                  success: false, 
+                {
+                  success: false,
                   error: 'Invalid signature data structure.',
                   code: 'INVALID_SIGNATURE_FORMAT'
                 },
@@ -558,8 +576,8 @@ export async function POST(request: NextRequest) {
             // Check if x and y exist and are numbers
             if (typeof x !== 'number' || typeof y !== 'number') {
               return NextResponse.json(
-                { 
-                  success: false, 
+                {
+                  success: false,
                   error: 'Invalid signature coordinates. Please try again.',
                   code: 'INVALID_SIGNATURE_FORMAT'
                 },
@@ -570,8 +588,8 @@ export async function POST(request: NextRequest) {
             // Check for Infinity, NaN, or invalid values
             if (!isFinite(x) || !isFinite(y)) {
               return NextResponse.json(
-                { 
-                  success: false, 
+                {
+                  success: false,
                   error: 'Tọa độ chữ ký không hợp lệ (Infinity/NaN). Vui lòng ký lại.',
                   code: 'INVALID_SIGNATURE_COORDINATES'
                 },
@@ -582,8 +600,8 @@ export async function POST(request: NextRequest) {
             // Check for suspicious values (all zeros, negative, etc.)
             if (x < 0 || y < 0 || (x === 0 && y === 0)) {
               return NextResponse.json(
-                { 
-                  success: false, 
+                {
+                  success: false,
                   error: 'Chữ ký không hợp lệ. Vui lòng vẽ lại chữ ký của bạn.',
                   code: 'SUSPICIOUS_SIGNATURE'
                 },
@@ -592,13 +610,13 @@ export async function POST(request: NextRequest) {
             }
           }
         }
-      } 
+      }
       // Validate TYPE signature
       else if (sigData.type === 'type') {
         if (!sigData.typedText || typeof sigData.typedText !== 'string' || sigData.typedText.trim() === '') {
           return NextResponse.json(
-            { 
-              success: false, 
+            {
+              success: false,
               error: 'Please type your signature name.',
               code: 'EMPTY_SIGNATURE'
             },
@@ -609,8 +627,8 @@ export async function POST(request: NextRequest) {
         // Minimum length for typed signature
         if (sigData.typedText.trim().length < 2) {
           return NextResponse.json(
-            { 
-              success: false, 
+            {
+              success: false,
               error: 'Chữ ký quá ngắn. Vui lòng nhập tên đầy đủ.',
               code: 'SIGNATURE_TOO_SHORT'
             },
@@ -619,8 +637,8 @@ export async function POST(request: NextRequest) {
         }
       } else {
         return NextResponse.json(
-          { 
-            success: false, 
+          {
+            success: false,
             error: 'Invalid signature type.',
             code: 'INVALID_SIGNATURE_TYPE'
           },
@@ -630,23 +648,23 @@ export async function POST(request: NextRequest) {
     }
 
     // 🔒 SECURITY: Rate limiting by IP (prevent spam/abuse)
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 
-               request.headers.get('x-real-ip') || 
-               'anonymous';
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] ||
+      request.headers.get('x-real-ip') ||
+      'anonymous';
 
     const { success: rateLimitOk, limit, remaining, reset } = await checkSignRateLimit(`${ip}:${id}`);
 
     if (!rateLimitOk) {
       const secondsUntilReset = Math.ceil((reset - Date.now()) / 1000);
-      
+
       return NextResponse.json(
-        { 
-          success: false, 
+        {
+          success: false,
           error: `Vui lòng đợi ${secondsUntilReset} giây trước khi ký lại.`,
           code: 'RATE_LIMITED',
           retryAfter: secondsUntilReset
         },
-        { 
+        {
           status: 429,
           headers: {
             'Retry-After': String(secondsUntilReset),
@@ -688,8 +706,8 @@ export async function POST(request: NextRequest) {
         const currentSigner = receipt.document.signers[signerIndex];
         if (currentSigner.signed) {
           return NextResponse.json(
-            { 
-              success: false, 
+            {
+              success: false,
               error: 'This signer has already signed this document',
               code: 'ALREADY_SIGNED'
             },
@@ -729,28 +747,41 @@ export async function POST(request: NextRequest) {
       // Generate PDF for contract (only if all signed)
       if (updatedReceipt.status === 'signed') {
         try {
-          pdfBuffer = await generateContractPDF({
-            title: receipt.document.title,
-            content: receipt.document.content,
-            signers: updatedReceipt.document!.signers,
-            metadata: receipt.document.metadata,
-            includeHeader: true,
-            includeFooter: true,
-          });
+          // Check if this is a PDF upload document
+          const isPdfUpload = !!receipt.document.metadata?.isPdfUpload && !!receipt.document.metadata?.pdfBase64;
+
+          if (isPdfUpload) {
+            // Use pdf-lib to embed signatures into the original PDF
+            pdfBuffer = await embedSignaturesInPdf(
+              receipt.document.metadata.pdfBase64 as string,
+              updatedReceipt.document!.signers,
+              (receipt.document.metadata.signaturePlacements || []) as any[]
+            );
+          } else {
+            // Use Puppeteer for regular HTML contracts
+            pdfBuffer = await generateContractPDF({
+              title: receipt.document.title,
+              content: receipt.document.content,
+              signers: updatedReceipt.document!.signers,
+              metadata: receipt.document.metadata,
+              includeHeader: true,
+              includeFooter: true,
+            });
+          }
         } catch (pdfError) {
           // 🔒 SECURITY: Rollback if PDF generation fails
           console.error('[PDF Generation] Failed:', pdfError);
-          
+
           // Rollback: Mark as partially signed instead of fully signed
           const rollbackUpdates: Partial<Receipt> = {
             status: 'partially_signed',
             signedAt: undefined,
           };
           await updateReceipt(id, rollbackUpdates);
-          
+
           return NextResponse.json(
-            { 
-              success: false, 
+            {
+              success: false,
               error: 'PDF generation failed. Please try again.',
               code: 'PDF_GENERATION_FAILED',
               details: pdfError instanceof Error ? pdfError.message : 'Unknown error'
@@ -771,8 +802,8 @@ export async function POST(request: NextRequest) {
       // 🔒 SECURITY: Prevent signing an already signed receipt
       if (receipt.status === 'signed') {
         return NextResponse.json(
-          { 
-            success: false, 
+          {
+            success: false,
             error: 'This receipt has already been signed',
             code: 'ALREADY_SIGNED'
           },
@@ -828,9 +859,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error signing receipt:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to sign receipt' 
+      {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to sign receipt'
       },
       { status: 500 }
     );
