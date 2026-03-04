@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createReceipt, DocumentData, SignatureData } from '@/lib/kv';
+import { createReceipt, DocumentData, SignatureData, storePdfData } from '@/lib/kv';
 import { getCurrentUserId } from '@/lib/auth';
 
 interface SignaturePlacement {
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Build document data - no summary HTML content, just store the PDF
+        // Build document data - NO pdfBase64 here (stored separately to avoid Redis 1MB limit)
         const documentData: DocumentData = {
             type: 'contract',
             title,
@@ -61,23 +61,23 @@ export async function POST(request: NextRequest) {
                 id: s.id,
                 role: s.role,
                 name: s.name,
-                signed: !!s.signed, // Preserve signature status from client
+                signed: !!s.signed,
                 signedAt: s.signedAt,
-                signatureData: s.signatureData, // Preserve actual signature data
+                signatureData: s.signatureData,
             })),
             metadata: {
                 createdDate: metadata.createdDate,
                 location: metadata.location,
-                pdfBase64, // Store PDF base64 for rendering
-                signaturePlacements: placements, // Store placements for signature positions
+                signaturePlacements: placements,
                 isPdfUpload: true, // Flag to identify PDF upload documents
+                // NOTE: pdfBase64 stored in separate Redis key to avoid 1MB limit
             },
         };
 
         // Get user ID
         const userId = await getCurrentUserId();
 
-        // Create receipt
+        // Create receipt (without pdfBase64 to keep JSON small)
         const receipt = await createReceipt(
             documentData,
             null,
@@ -85,6 +85,9 @@ export async function POST(request: NextRequest) {
             undefined,
             userId || undefined
         );
+
+        // Store PDF data separately in its own Redis key
+        await storePdfData(receipt.id, pdfBase64);
 
         // Generate URL
         const baseUrl =

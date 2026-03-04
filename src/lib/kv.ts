@@ -18,7 +18,7 @@ function getRedis(): Redis {
     if (!redisUrl) {
       throw new Error('REDIS_URL_NEW or REDIS_URL environment variable is not set');
     }
-    
+
     // Cấu hình cho Vercel serverless + Upstash
     redis = new Redis(redisUrl, {
       maxRetriesPerRequest: 3, // Giảm số lần retry (mặc định 20)
@@ -154,6 +154,7 @@ export interface User {
 
 // Redis Keys
 const RECEIPT_KEY = (id: string) => `receipt:${id}`;
+const PDF_DATA_KEY = (id: string) => `pdf:${id}`;
 const ADMIN_LIST_KEY = 'admin:receipt_ids';
 const USER_KEY = (id: string) => `user:${id}`;
 const USER_EMAIL_KEY = (email: string) => `user:email:${email.toLowerCase()}`;
@@ -172,17 +173,17 @@ export async function createReceipt(
 ): Promise<Receipt> {
   const id = createReceiptId();
   const redis = getRedis();
-  
+
   // Detect format type
   const isDocumentFormat = 'type' in infoOrData && infoOrData.type === 'contract';
   const isNewReceiptFormat = 'fields' in infoOrData && !isDocumentFormat;
   const isLegacyFormat = !isDocumentFormat && !isNewReceiptFormat;
-  
+
   const receipt: Receipt = {
     id,
-    ...(isDocumentFormat 
+    ...(isDocumentFormat
       ? { document: infoOrData as DocumentData }
-      : isNewReceiptFormat 
+      : isNewReceiptFormat
         ? { data: infoOrData as ReceiptData }
         : { info: infoOrData as ReceiptInfo }
     ),
@@ -199,10 +200,10 @@ export async function createReceipt(
 
   // Lưu receipt
   await redis.set(RECEIPT_KEY(id), JSON.stringify(receipt));
-  
+
   // Thêm ID vào list admin (thêm vào đầu) - Admin luôn xem được tất cả
   await redis.lpush(ADMIN_LIST_KEY, id);
-  
+
   // Nếu có userId, thêm vào user's receipt list
   if (userId) {
     await redis.lpush(USER_RECEIPTS_KEY(userId), id);
@@ -216,6 +217,18 @@ export async function getReceipt(id: string): Promise<Receipt | null> {
   const data = await redis.get(RECEIPT_KEY(id));
   if (!data) return null;
   return JSON.parse(data) as Receipt;
+}
+
+// Store PDF data separately (avoids Redis 1MB per key limit)
+export async function storePdfData(id: string, pdfBase64: string): Promise<void> {
+  const redis = getRedis();
+  await redis.set(PDF_DATA_KEY(id), pdfBase64);
+}
+
+// Get PDF data for a receipt
+export async function getPdfData(id: string): Promise<string | null> {
+  const redis = getRedis();
+  return await redis.get(PDF_DATA_KEY(id));
 }
 
 export async function updateReceipt(
@@ -240,7 +253,7 @@ export async function signReceipt(
     status: 'signed',
     signedAt: Date.now(),
   };
-  
+
   if (signatureDataNguoiGui) {
     updates.signatureDataNguoiGui = signatureDataNguoiGui;
     // Also set legacy signaturePoints for backward compat
@@ -248,26 +261,26 @@ export async function signReceipt(
       updates.signaturePoints = signatureDataNguoiGui.signaturePoints;
     }
   }
-  
+
   if (signatureDataNguoiNhan) {
     updates.signatureDataNguoiNhan = signatureDataNguoiNhan;
   }
-  
+
   return await updateReceipt(id, updates);
 }
 
 export async function deleteReceipt(id: string): Promise<boolean> {
   const redis = getRedis();
-  
+
   // Get receipt to check userId before deleting
   const receipt = await getReceipt(id);
-  
+
   // Xóa receipt
   await redis.del(RECEIPT_KEY(id));
-  
+
   // Xóa khỏi list admin
   await redis.lrem(ADMIN_LIST_KEY, 0, id);
-  
+
   // Xóa khỏi list user nếu có userId
   if (receipt?.userId) {
     await redis.lrem(USER_RECEIPTS_KEY(receipt.userId), 0, id);
@@ -311,7 +324,7 @@ export async function getUserReceipts(userId: string): Promise<Receipt[]> {
 export async function createUser(email: string, passwordHash: string, name: string, verificationToken: string): Promise<User> {
   const redis = getRedis();
   const userId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
+
   const user: User = {
     id: userId,
     email: email.toLowerCase(),
@@ -351,7 +364,7 @@ export async function updateUser(id: string, updates: Partial<User>): Promise<Us
   const redis = getRedis();
   const updated = { ...user, ...updates };
   await redis.set(USER_KEY(id), JSON.stringify(updated));
-  
+
   // Update email index if email changed
   if (updates.email && updates.email !== user.email) {
     await redis.del(USER_EMAIL_KEY(user.email));

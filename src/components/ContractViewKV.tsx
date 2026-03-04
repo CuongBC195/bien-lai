@@ -203,9 +203,10 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
   // Load PDF document and render pages
   const pdfDocRef = useRef<any>(null);
+  const pdfBase64Ref = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!receipt?.document?.metadata?.isPdfUpload || !receipt.document.metadata.pdfBase64) return;
+    if (!receipt?.document?.metadata?.isPdfUpload) return;
 
     setIsPdfUpload(true);
     setPdfPlacements(receipt.document.metadata.signaturePlacements || []);
@@ -215,10 +216,35 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
     const loadAndRender = async () => {
       try {
         setPdfRendering(true);
+
+        // Fetch PDF data from separate API endpoint (avoids 1MB Redis key limit)
+        let pdfBase64: string | null = null;
+        try {
+          const pdfRes = await fetch(`/api/receipts/get-pdf?id=${receiptId}`);
+          const pdfData = await pdfRes.json();
+          if (pdfData.success && pdfData.pdfBase64) {
+            pdfBase64 = pdfData.pdfBase64;
+          }
+        } catch (e) {
+          console.warn('Failed to fetch PDF from API, trying metadata fallback');
+        }
+
+        // Fallback: try reading from metadata (legacy documents)
+        if (!pdfBase64 && receipt.document?.metadata?.pdfBase64) {
+          pdfBase64 = receipt.document.metadata.pdfBase64 as string;
+        }
+
+        if (!pdfBase64 || cancelled) {
+          console.error('No PDF data available');
+          setPdfRendering(false);
+          return;
+        }
+
+        pdfBase64Ref.current = pdfBase64;
+
         const pdfjsLib = await import('pdfjs-dist');
         pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
-        const pdfBase64 = receipt.document!.metadata.pdfBase64 as string;
         const base64Data = pdfBase64.split(',')[1] || pdfBase64;
         const binaryString = atob(base64Data);
         const bytes = new Uint8Array(binaryString.length);
@@ -469,8 +495,25 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
 
     try {
       // For PDF uploads: embed signatures into PDF using pdf-lib, then download
-      if (isPdfUpload && receipt.document.metadata?.pdfBase64) {
-        const pdfBase64 = receipt.document.metadata.pdfBase64 as string;
+      if (isPdfUpload) {
+        // Use cached PDF data from ref, or fetch from API
+        let pdfBase64 = pdfBase64Ref.current;
+        if (!pdfBase64) {
+          try {
+            const pdfRes = await fetch(`/api/receipts/get-pdf?id=${receiptId}`);
+            const pdfData = await pdfRes.json();
+            if (pdfData.success) pdfBase64 = pdfData.pdfBase64;
+          } catch { }
+        }
+        // Legacy fallback
+        if (!pdfBase64 && receipt.document.metadata?.pdfBase64) {
+          pdfBase64 = receipt.document.metadata.pdfBase64 as string;
+        }
+        if (!pdfBase64) {
+          showToast('Không tìm thấy dữ liệu PDF', 'error');
+          setExporting(false);
+          return;
+        }
         const placements = (receipt.document.metadata.signaturePlacements || []) as any[];
 
         // Dynamically import pdf-lib

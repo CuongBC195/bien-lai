@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getReceipt, updateReceipt, signReceipt, Receipt, DynamicField, SignatureData, getRedisClient } from '@/lib/kv';
+import { getReceipt, updateReceipt, signReceipt, Receipt, DynamicField, SignatureData, getRedisClient, getPdfData } from '@/lib/kv';
 import nodemailer from 'nodemailer';
 import { generateContractPDF, generatePDFFilename } from '@/lib/pdf-generator';
 import { embedSignaturesInPdf } from '@/lib/pdf-embed';
@@ -748,12 +748,19 @@ export async function POST(request: NextRequest) {
       if (updatedReceipt.status === 'signed') {
         try {
           // Check if this is a PDF upload document
-          const isPdfUpload = !!receipt.document.metadata?.isPdfUpload && !!receipt.document.metadata?.pdfBase64;
+          const isPdfUpload = !!receipt.document.metadata?.isPdfUpload;
 
           if (isPdfUpload) {
+            // Fetch PDF from separate storage, fallback to metadata
+            let pdfBase64 = await getPdfData(id);
+            if (!pdfBase64 && receipt.document.metadata?.pdfBase64) {
+              pdfBase64 = receipt.document.metadata.pdfBase64 as string;
+            }
+            if (!pdfBase64) throw new Error('PDF data not found');
+
             // Use pdf-lib to embed signatures into the original PDF
             pdfBuffer = await embedSignaturesInPdf(
-              receipt.document.metadata.pdfBase64 as string,
+              pdfBase64,
               updatedReceipt.document!.signers,
               (receipt.document.metadata.signaturePlacements || []) as any[]
             );
