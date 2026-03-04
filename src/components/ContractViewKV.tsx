@@ -201,101 +201,98 @@ export default function ContractViewKV({ receiptId }: ContractViewKVProps) {
     fetchContract();
   }, [receiptId]);
 
-  // Load PDF if it's a PDF upload document
-  const loadPdfDocument = useCallback(async (pdfBase64: string) => {
-    try {
-      setPdfRendering(true);
-      const pdfjsLib = await import('pdfjs-dist');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+  // Load PDF document and render pages
+  const pdfDocRef = useRef<any>(null);
 
-      // Convert base64 data URL to ArrayBuffer
-      const base64Data = pdfBase64.split(',')[1] || pdfBase64;
-      const binaryString = atob(base64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-
-      const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
-      setPdfDoc(doc);
-      setPdfTotalPages(doc.numPages);
-    } catch (error) {
-      console.error('Error loading PDF:', error);
-    } finally {
-      setPdfRendering(false);
-    }
-  }, []);
-
-  // Effect to detect and load PDF
   useEffect(() => {
-    if (receipt?.document?.metadata?.isPdfUpload && receipt.document.metadata.pdfBase64) {
-      setIsPdfUpload(true);
-      setPdfPlacements(receipt.document.metadata.signaturePlacements || []);
-      loadPdfDocument(receipt.document.metadata.pdfBase64);
-    }
-  }, [receipt, loadPdfDocument]);
+    if (!receipt?.document?.metadata?.isPdfUpload || !receipt.document.metadata.pdfBase64) return;
 
-  // Render a single PDF page on a specific canvas
-  const renderedPagesRef = useRef<Set<number>>(new Set());
-  const renderingPagesRef = useRef<Set<number>>(new Set());
+    setIsPdfUpload(true);
+    setPdfPlacements(receipt.document.metadata.signaturePlacements || []);
 
-  const renderPageOnCanvas = useCallback(async (canvas: HTMLCanvasElement, pageNum: number) => {
-    if (!pdfDoc) return;
-    if (renderedPagesRef.current.has(pageNum)) return;
-    if (renderingPagesRef.current.has(pageNum)) return;
+    let cancelled = false;
 
-    renderingPagesRef.current.add(pageNum);
-    try {
-      const page = await pdfDoc.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 1.3 });
-      const context = canvas.getContext('2d');
-      if (!context) return;
+    const loadAndRender = async () => {
+      try {
+        setPdfRendering(true);
+        const pdfjsLib = await import('pdfjs-dist');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
 
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
+        const pdfBase64 = receipt.document!.metadata.pdfBase64 as string;
+        const base64Data = pdfBase64.split(',')[1] || pdfBase64;
+        const binaryString = atob(base64Data);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
 
-      await page.render({
-        canvasContext: context,
-        viewport: viewport,
-      }).promise;
+        const doc = await pdfjsLib.getDocument({ data: bytes }).promise;
+        if (cancelled) return;
 
-      renderedPagesRef.current.add(pageNum);
+        pdfDocRef.current = doc;
+        setPdfDoc(doc);
+        setPdfTotalPages(doc.numPages);
 
-      // Check if all pages rendered
-      if (renderedPagesRef.current.size >= pdfDoc.numPages) {
-        setPdfPagesRendered(true);
+        // Wait for canvases to mount (retry up to 20 times, 200ms apart)
+        const tryRender = async (attempt = 0): Promise<void> => {
+          if (cancelled) return;
+
+          const canvasElements: HTMLCanvasElement[] = [];
+          for (let i = 1; i <= doc.numPages; i++) {
+            const el = pdfCanvasRefs.current.get(i);
+            if (el) canvasElements.push(el);
+          }
+
+          if (canvasElements.length < doc.numPages && attempt < 20) {
+            await new Promise(r => setTimeout(r, 200));
+            return tryRender(attempt + 1);
+          }
+
+          // Render all pages
+          for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
+            if (cancelled) return;
+            const canvas = pdfCanvasRefs.current.get(pageNum);
+            if (!canvas) continue;
+
+            const page = await doc.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1.3 });
+            const context = canvas.getContext('2d');
+            if (!context) continue;
+
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            await page.render({
+              canvasContext: context,
+              viewport: viewport,
+              canvas: canvas,
+            } as any).promise;
+          }
+
+          if (!cancelled) {
+            setPdfPagesRendered(true);
+            setPdfRendering(false);
+          }
+        };
+
+        await tryRender();
+      } catch (error) {
+        console.error('Error loading/rendering PDF:', error);
         setPdfRendering(false);
       }
-    } catch (error: any) {
-      if (error?.name !== 'RenderingCancelledException') {
-        console.error(`Error rendering PDF page ${pageNum}:`, error);
-      }
-    } finally {
-      renderingPagesRef.current.delete(pageNum);
-    }
-  }, [pdfDoc]);
+    };
 
-  // Canvas ref callback — always stores ref, renders if pdfDoc ready
+    loadAndRender();
+
+    return () => { cancelled = true; };
+  }, [receipt]);
+
+  // Canvas ref callback — just stores the ref
   const setCanvasRef = useCallback((el: HTMLCanvasElement | null, pageNum: number) => {
     if (el) {
       pdfCanvasRefs.current.set(pageNum, el);
-      // If pdfDoc is already loaded, render immediately
-      if (pdfDoc) {
-        setPdfRendering(true);
-        renderPageOnCanvas(el, pageNum);
-      }
     }
-  }, [pdfDoc, renderPageOnCanvas]);
-
-  // Fallback: when pdfDoc loads AFTER canvases already mounted, render all
-  useEffect(() => {
-    if (pdfDoc && pdfCanvasRefs.current.size > 0 && !pdfPagesRendered) {
-      setPdfRendering(true);
-      pdfCanvasRefs.current.forEach((canvas, pageNum) => {
-        renderPageOnCanvas(canvas, pageNum);
-      });
-    }
-  }, [pdfDoc, pdfPagesRendered, renderPageOnCanvas]);
+  }, []);
 
   // Handle signature
   const handleOpenSignature = (signerId: string) => {
